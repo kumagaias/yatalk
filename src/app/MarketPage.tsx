@@ -1,0 +1,185 @@
+import { ArrowDown, ArrowUpRight, CircleHelp, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import type { AppConfig, Cart, CartLine, MenuResponse, Product } from "../types";
+import { ApiError, del, get, post } from "../lib/api";
+import { createSerialMutationQueue } from "../lib/serial-mutation-queue";
+import { BrandHeader } from "../components/BrandHeader";
+import { ChatPanel } from "../components/ChatPanel";
+import { CartPanel } from "../components/CartPanel";
+import { MenuSection } from "../components/MenuSection";
+import { Loading } from "../components/Feedback";
+
+type ChatHistoryItem = { role: "user" | "assistant"; content: string };
+
+export function MarketPage() {
+  const { shopSlug } = useParams();
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [cart, setCart] = useState<Cart | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [eventName, setEventName] = useState("Little Harbor Market");
+  const [loading, setLoading] = useState(true);
+  const [menuError, setMenuError] = useState("");
+  const [configError, setConfigError] = useState("");
+  const [cartError, setCartError] = useState("");
+  const [cartMutationBusy, setCartMutationBusy] = useState(false);
+  const [productBusy, setProductBusy] = useState<string | null>(null);
+  const [cartBusyError, setCartBusyError] = useState("");
+  const cartRef = useRef<Cart | null>(null);
+  const mutationQueueRef = useRef(createSerialMutationQueue());
+
+  const setCurrentCart = useCallback((next: Cart) => {
+    const latest = cartRef.current;
+    if (latest && (next.cartVersion < latest.cartVersion ||
+      next.cartVersion === latest.cartVersion && next.catalogRevision < latest.catalogRevision)) return;
+    cartRef.current = next;
+    setCart(next);
+  }, []);
+
+  const runCartMutation = useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
+    setCartMutationBusy(true);
+    return mutationQueueRef.current.run(operation).finally(() => {
+      if (!mutationQueueRef.current.isBusy()) setCartMutationBusy(false);
+    });
+  }, []);
+
+  const loadMenu = useCallback(async () => {
+    const result = await get<MenuResponse>("/api/menu");
+    setProducts(result.products);
+    setMenuError("");
+    setEventName(typeof result.event === "string" ? result.event : result.event.name ?? "Little Harbor Market");
+  }, []);
+  const loadCart = useCallback(async () => {
+    const result = await get<Cart>("/api/cart");
+    setCurrentCart(result);
+    setCartError("");
+    return result;
+  }, [setCurrentCart]);
+  const refreshMenu = useCallback(async () => {
+    try { await loadMenu(); }
+    catch (error) {
+      setMenuError(error instanceof Error ? error.message : "Menu unavailable. Please retry.");
+    }
+  }, [loadMenu]);
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    setMenuError("");
+    setConfigError("");
+    const [configResult, menuResult, cartResult] = await Promise.allSettled([
+      get<AppConfig>("/api/config"), loadMenu(), loadCart(),
+    ]);
+    if (configResult.status === "fulfilled") setConfig(configResult.value);
+    else setConfigError("Payment setup could not be checked. Reload to try again; manual ordering is still available.");
+    if (menuResult.status === "rejected") setMenuError(menuResult.reason instanceof Error ? menuResult.reason.message : "Menu unavailable. Please retry.");
+    if (cartResult.status === "rejected") setCartError(cartResult.reason instanceof Error ? cartResult.reason.message : "Order summary unavailable.");
+    setLoading(false);
+  }, [loadCart, loadMenu]);
+
+  useEffect(() => { void loadAll(); }, [loadAll]);
+
+  const refreshCartAndMenu = useCallback(async () => {
+    const [cartResult, menuResult] = await Promise.allSettled([loadCart(), loadMenu()]);
+    if (cartResult.status === "rejected") setCartError(cartResult.reason instanceof Error ? cartResult.reason.message : "Order summary unavailable.");
+    if (menuResult.status === "rejected") setMenuError(menuResult.reason instanceof Error ? menuResult.reason.message : "Menu unavailable. Please retry.");
+  }, [loadCart, loadMenu]);
+
+  const mutateCart = (action: "add" | "set" | "remove", productId: string, quantity: number, busyKey?: string) => {
+    void runCartMutation(async () => {
+      const current = cartRef.current;
+      if (!current) return;
+      setCartBusyError("");
+      setProductBusy(busyKey ?? null);
+      try {
+        const result = await post<Cart>("/api/cart/items", {
+          action, productId, quantity,
+          cartVersion: current.cartVersion,
+          catalogRevision: current.catalogRevision,
+        });
+        setCurrentCart(result);
+        if (action === "add") await refreshMenu();
+      } catch (error) {
+        setCartBusyError(error instanceof ApiError ? error.message : "Your order could not be updated. Please retry.");
+        if (error instanceof ApiError && error.status === 409) await refreshCartAndMenu();
+      } finally {
+        setProductBusy(null);
+      }
+    });
+  };
+
+  const clearCart = () => {
+    void runCartMutation(async () => {
+      setCartBusyError("");
+      try { setCurrentCart(await del<Cart>("/api/cart")); }
+      catch (error) {
+        setCartBusyError(error instanceof Error ? error.message : "Your order could not be cleared.");
+        if (error instanceof ApiError && error.status === 409) await refreshCartAndMenu();
+      }
+    });
+  };
+
+  const sendChat = useCallback(async (message: string, history: ChatHistoryItem[]) => runCartMutation(async () => {
+    const current = cartRef.current;
+    if (!current) throw new Error("Your order is unavailable. Reload the order summary and try again.");
+    setCartBusyError("");
+    try {
+      const result = await post<{ reply: string; clarification: string | null; cart: Cart }>("/api/chat", {
+        message, history,
+        cartVersion: current.cartVersion,
+        catalogRevision: current.catalogRevision,
+      });
+      setCurrentCart(result.cart);
+      return result;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) await refreshCartAndMenu();
+      throw error;
+    }
+  }), [refreshCartAndMenu, runCartMutation, setCurrentCart]);
+
+  const updateLine = (line: CartLine, quantity: number) => {
+    const productId = line.productId ?? line.id;
+    if (productId) mutateCart(quantity === 0 ? "remove" : "set", productId, quantity);
+  };
+  const addProduct = (product: Product) => mutateCart("add", product.id, 1, product.id);
+  const retryCart = () => {
+    setCartBusyError("");
+    void refreshCartAndMenu();
+  };
+  const currentName = config?.eventName || eventName;
+
+  return (
+    <div className="market-page">
+      <BrandHeader eventName={currentName} />
+      <main className="market-main">
+        <section className="hero" aria-labelledby="hero-heading">
+          <div className="hero-copy">
+            <p className="hero-kicker"><span />A neighborhood market, made easier</p>
+            <h1 id="hero-heading">A little market.<br /><span>A lot less waiting.</span></h1>
+            <p className="hero-description">Find a favorite, chat your order, then pay securely with PayPal. We’ll have it ready at the stall.</p>
+            <a className="hero-action" href="#market-menu">Explore today’s menu <ArrowDown size={16} aria-hidden="true" /></a>
+          </div>
+          <div className="hero-note" aria-label="Market note">
+            <span className="hero-sun" aria-hidden="true">☼</span>
+            <div className="hero-note-top"><span>GOOD THINGS</span><span>✳</span></div>
+            <p>Made here.<br />Shared here.</p>
+            <span className="hero-note-bottom">A TASTE OF THE NEIGHBORHOOD</span>
+          </div>
+          <span className="hero-scribble" aria-hidden="true">✳</span>
+        </section>
+        {loading && !products.length && <Loading>Opening the market…</Loading>}
+        {menuError && <div className="page-alert" role="alert"><CircleHelp size={18} aria-hidden="true" /><span>{menuError}</span><button className="text-button" onClick={() => void loadAll()}><RefreshCw size={15} aria-hidden="true" />Retry</button></div>}
+        {configError && <div className="setup-banner" role="status"><CircleHelp size={17} aria-hidden="true" />{configError}</div>}
+        <div className="workspace-grid">
+          <MenuSection products={products} loading={loading && products.length === 0} busy={productBusy} mutationBusy={cartMutationBusy || cart === null} onAdd={addProduct} />
+          <aside className="market-sidebar" aria-label="Chat and order summary">
+            <ChatPanel cart={cart} mutationBusy={cartMutationBusy} onSend={sendChat} products={products} />
+            <CartPanel
+              cart={cart} config={config} busy={cartMutationBusy || loading} error={cartError || cartBusyError}
+              onChange={updateLine} onClear={clearCart} onRetry={retryCart} onCart={setCurrentCart}
+            />
+          </aside>
+        </div>
+        <footer className="market-footer"><span>{currentName} · Tokyo</span><Link to={shopSlug ? `/dashboard/shops/${encodeURIComponent(shopSlug)}` : "/dashboard/login"}>For the people behind the stall <ArrowUpRight size={14} aria-hidden="true" /></Link><span>Order with care. Pick up with a smile.</span></footer>
+      </main>
+    </div>
+  );
+}

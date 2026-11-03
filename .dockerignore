@@ -1,0 +1,15 @@
+.env
+.env.*
+.git
+.agents
+.codex
+.data
+.terraform
+**/.terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+coverage
+dist
+dist-server
+node_modules

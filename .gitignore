@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-server/
+coverage/
+.data/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan

@@ -1,0 +1,47 @@
+{
+  "name": "yatalk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c green,cyan \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
+    "build": "tsc --noEmit && tsc -p tsconfig.server.json && vite build",
+    "start": "tsx server/index.ts",
+    "test": "node --import tsx --test --test-concurrency=1 tests/unit/*.test.ts tests/integration/*.test.ts"
+  },
+  "dependencies": {
+    "@google/genai": "2.32.0",
+    "@paypal/react-paypal-js": "10.6.1",
+    "better-sqlite3": "13.0.3",
+    "dotenv": "latest",
+    "express": "5.3.0",
+    "express-rate-limit": "latest",
+    "helmet": "latest",
+    "lucide-react": "latest",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-router-dom": "7.18.5",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "latest",
+    "@types/express": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "concurrently": "latest",
+    "tsx": "latest",
+    "typescript": "5.9.3",
+    "vite": "8.3.5"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true,
+    "protobufjs@7.6.6": true
+  }
+}

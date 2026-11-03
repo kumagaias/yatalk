@@ -1,0 +1,14 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag
+      - ${_IMAGE_URI}:${_IMAGE_TAG}
+      - .
+images:
+  - ${_IMAGE_URI}:${_IMAGE_TAG}
+substitutions:
+  _IMAGE_URI: asia-northeast1-docker.pkg.dev/s-yatalk/yatalk-dev/yatalk
+  _IMAGE_TAG: preview
+options:
+  logging: CLOUD_LOGGING_ONLY

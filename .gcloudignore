@@ -1,0 +1,6 @@
+#!include:.gitignore
+.env
+.env.*
+node_modules/
+coverage/
+infra/

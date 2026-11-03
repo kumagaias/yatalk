@@ -1,0 +1,63 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { AiProvider } from "../../server/services/ai.js";
+import { overlongWebmSample, syntheticWebm } from "../fixtures/audio.js";
+import { FakePayPal, json, origin, visitorSession, withServer } from "./support.js";
+
+test("voice transcription validates origin, session, media format, and recording length", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const denied = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { origin: "https://attacker.example", "content-type": "audio/webm" }, body: new Uint8Array([1, 2, 3]) });
+    assert.equal(denied.response.status, 403);
+    const deniedOversized = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { origin: "https://attacker.example", "content-type": "audio/webm" }, body: new Uint8Array(4 * 1024 * 1024 + 1) });
+    assert.equal(deniedOversized.response.status, 403);
+
+    const noSession = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { origin, "content-type": "audio/webm" }, body: new Uint8Array([1, 2, 3]) });
+    assert.equal(noSession.response.status, 401);
+    const visitor = await visitorSession(url);
+    const unsupported = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { cookie: visitor.cookie, origin, "content-type": "audio/wav" }, body: new Uint8Array([1, 2, 3]) });
+    assert.equal(unsupported.response.status, 415);
+    const malformed = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { cookie: visitor.cookie, origin, "content-type": "audio/webm" }, body: new Uint8Array([1, 2, 3]) });
+    assert.equal(malformed.response.status, 400);
+
+    const transcribed = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { cookie: visitor.cookie, origin, "content-type": "audio/webm;codecs=opus" }, body: new Uint8Array(syntheticWebm) });
+    assert.equal(transcribed.response.status, 200);
+    assert.equal(transcribed.body.transcript, "Two yakisoba and one iced tea");
+    const tooLong = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { cookie: visitor.cookie, origin, "content-type": "audio/webm" }, body: new Uint8Array(overlongWebmSample()) });
+    assert.equal(tooLong.response.status, 413);
+    assert.equal(tooLong.body.error.code, "audio_too_long");
+    const oversized = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { cookie: visitor.cookie, origin, "content-type": "audio/webm" }, body: new Uint8Array(4 * 1024 * 1024 + 1) });
+    assert.equal(oversized.response.status, 413);
+
+    const oversizedWithoutContentType = await fetch(`${url}/api/voice/transcribe`, { method: "POST",
+      headers: { cookie: visitor.cookie, origin }, body: new Uint8Array(256 * 1024 + 1) });
+    assert.equal(oversizedWithoutContentType.status, 413);
+  });
+});
+
+test("voice transcription has an IP-wide limit across visitor sessions", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const visitors = await Promise.all(Array.from({ length: 3 }, () => visitorSession(url)));
+    for (const visitor of visitors) {
+      for (let index = 0; index < 4; index += 1) {
+        const result = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { cookie: visitor.cookie, origin, "content-type": "audio/webm" }, body: new Uint8Array(syntheticWebm) });
+        assert.equal(result.response.status, 200);
+      }
+    }
+    const limited = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { cookie: visitors[0]!.cookie, origin, "content-type": "audio/webm" }, body: new Uint8Array(syntheticWebm) });
+    assert.equal(limited.response.status, 429);
+  });
+});
+
+test("voice route returns a retry message when a valid clip contains no clear speech", async () => {
+  const noSpeechAi: AiProvider = {
+    async interpretCart() { return { reply: "", clarification: null, operations: [] }; },
+    async explainFacts() { return ""; },
+    async transcribeAudio() { return ""; },
+  };
+  await withServer(new FakePayPal(), async (url) => {
+    const visitor = await visitorSession(url);
+    const result = await json(`${url}/api/voice/transcribe`, { method: "POST", headers: { cookie: visitor.cookie, origin, "content-type": "audio/webm" }, body: new Uint8Array(syntheticWebm) });
+    assert.equal(result.response.status, 422);
+    assert.equal(result.body.error.code, "no_speech");
+  }, noSpeechAi);
+});
