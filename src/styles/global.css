@@ -214,8 +214,7 @@ a { color: inherit; }
 .landing-owner div span { color: var(--muted); }
 .slug-input { display: flex; min-height: 46px; align-items: center; padding-left: 11px; border: 1px solid #aebbb3; border-radius: 8px; background: white; }
 .slug-input > span { flex: 0 0 auto; color: var(--muted); font-size: 14px; }
-.slug-input input { min-width: 0; min-height: 42px; border: 0; outline: 0; }
-.slug-input:focus-within { outline: 3px solid rgb(27 100 88 / 20%); border-color: var(--success); }
+.slug-input > output { display: flex; min-width: 0; min-height: 42px; flex: 1; align-items: center; overflow-wrap: anywhere; color: var(--ink); }
 .tenant-shop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .tenant-shop-card { display: grid; align-content: start; gap: 8px; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
 .tenant-shop-card .eyebrow, .tenant-shop-card p { margin: 0; }

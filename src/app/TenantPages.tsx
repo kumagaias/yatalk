@@ -31,8 +31,7 @@ export function PlatformHome() {
 
 export function ShopSetupPage({ addAnother = false }: { addAnother?: boolean }) {
   const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [slugEdited, setSlugEdited] = useState(false);
+  const slug = shopSlugFromName(name);
   const [slugAvailability, setSlugAvailability] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "error">("idle");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -91,8 +90,8 @@ export function ShopSetupPage({ addAnother = false }: { addAnother?: boolean }) 
         <h1 id="shop-setup-heading">{addAnother ? "Add a shop" : "Create your shop"}</h1>
         <p className="auth-intro">Your public page will be at <strong>yatalk.kumagaias.com/shops/{slug || "your-shop"}</strong>.</p>
         <form onSubmit={(event) => void submit(event)}>
-          <div className="form-field"><label htmlFor="shop-name">Shop name</label><input id="shop-name" autoComplete="organization" maxLength={80} required value={name} onChange={(event) => { const value = event.target.value; setName(value); if (!slugEdited) setSlug(shopSlugFromName(value)); setError(""); }} /></div>
-          <div className="form-field"><label htmlFor="shop-slug">Shop address</label><div className="slug-input"><span>yatalk.kumagaias.com/shops/</span><input id="shop-slug" autoComplete="off" minLength={3} maxLength={40} pattern="[a-z0-9]+(-[a-z0-9]+)*" required value={slug} onChange={(event) => { setSlug(event.target.value.toLowerCase()); setSlugEdited(true); setError(""); }} /></div><p className="form-help">Generated from your shop name. You can edit it before creating your shop.</p>
+          <div className="form-field"><label htmlFor="shop-name">Shop name</label><input id="shop-name" autoComplete="organization" maxLength={80} required value={name} onChange={(event) => { setName(event.target.value); setError(""); }} /></div>
+          <div className="form-field"><label htmlFor="shop-slug">Shop address</label><div className="slug-input"><span>yatalk.kumagaias.com/shops/</span><output id="shop-slug">{slug || "your-shop"}</output></div><p className="form-help">Generated automatically from your shop name.</p>
             {slugAvailability === "checking" && <p className="form-help" role="status">Checking address availability…</p>}
             {slugAvailability === "available" && <p className="form-help slug-status form-help-success" role="status">This address is available.</p>}
             {slugAvailability === "taken" && <p className="form-help slug-status form-help-error" role="status">This address is already in use.</p>}
