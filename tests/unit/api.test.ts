@@ -19,3 +19,9 @@ test("platform and legacy routes keep their existing API paths", () => {
   assert.equal(resolveApiPath("/api/menu", "/"), "/api/menu");
   assert.equal(resolveApiPath("/api/organizer/summary", "/dashboard"), "/api/organizer/summary");
 });
+
+test("explicit versioned API paths are not rewritten from the shop setup route", () => {
+  assert.equal(resolveApiPath("/api/v1/shops", "/shops/new"), "/api/v1/shops");
+  assert.equal(resolveApiPath("/api/v1/shops/slug-availability/sample", "/shops/new"),
+    "/api/v1/shops/slug-availability/sample");
+});

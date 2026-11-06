@@ -194,6 +194,9 @@ a { color: inherit; }
 .form-field input, .form-field textarea, .form-field select, .field-input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid #aebbb3; border-radius: 8px; color: var(--ink); background: white; }
 .form-field textarea { min-height: 92px; resize: vertical; }
 .form-help { margin: -3px 0 0; color: var(--muted); font-size: 13px; }
+.slug-status { font-size: 16px; }
+.form-help-success { color: var(--success); font-weight: 650; }
+.form-help-error { color: var(--tomato-dark); font-weight: 650; }
 .auth-card .button { width: 100%; margin-top: 5px; }
 .back-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 18px; color: var(--muted); font-size: 14px; text-decoration: none; }
 .back-link:hover { color: var(--tomato-dark); }

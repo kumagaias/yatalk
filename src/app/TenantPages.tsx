@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Alert, Loading } from "../components/Feedback";
 import { BrandHeader } from "../components/BrandHeader";
 import { del, get, post } from "../lib/api";
+import { isValidShopSlug, shopSlugFromName } from "../lib/shop-slug";
 import type { Order } from "../types";
 import { money } from "../lib/format";
 import { useParams } from "react-router-dom";
@@ -31,11 +32,39 @@ export function PlatformHome() {
 export function ShopSetupPage({ addAnother = false }: { addAnother?: boolean }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [slugAvailability, setSlugAvailability] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "error">("idle");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!slug) {
+      setSlugAvailability("idle");
+      return;
+    }
+    if (!isValidShopSlug(slug)) {
+      setSlugAvailability("invalid");
+      return;
+    }
+
+    let current = true;
+    setSlugAvailability("checking");
+    const timer = window.setTimeout(() => {
+      void get<{ available: boolean }>(`/api/v1/shops/slug-availability/${encodeURIComponent(slug)}`)
+        .then(({ available }) => {
+          if (current) setSlugAvailability(available ? "available" : "taken");
+        })
+        .catch(() => {
+          if (current) setSlugAvailability("error");
+        });
+    }, 300);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [slug]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -61,14 +90,20 @@ export function ShopSetupPage({ addAnother = false }: { addAnother?: boolean }) 
         <h1 id="shop-setup-heading">{addAnother ? "Add a shop" : "Create your shop"}</h1>
         <p className="auth-intro">Your public page will be at <strong>yatalk.kumagaias.com/shops/{slug || "your-shop"}</strong>.</p>
         <form onSubmit={(event) => void submit(event)}>
-          <div className="form-field"><label htmlFor="shop-name">Shop name</label><input id="shop-name" autoComplete="organization" maxLength={80} required value={name} onChange={(event) => setName(event.target.value)} /></div>
-          <div className="form-field"><label htmlFor="shop-slug">Shop address</label><div className="slug-input"><span>yatalk.kumagaias.com/shops/</span><input id="shop-slug" autoComplete="off" minLength={3} maxLength={40} pattern="[a-z0-9]+(-[a-z0-9]+)*" required value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase())} /></div><p className="form-help">Use 3–40 lowercase letters, numbers, or single hyphens. This address cannot be changed.</p></div>
+          <div className="form-field"><label htmlFor="shop-name">Shop name</label><input id="shop-name" autoComplete="organization" maxLength={80} required value={name} onChange={(event) => { const value = event.target.value; setName(value); setSlug(shopSlugFromName(value)); setError(""); }} /></div>
+          <div className="form-field"><label htmlFor="shop-slug">Shop address</label><div className="slug-input"><span>yatalk.kumagaias.com/shops/</span><input id="shop-slug" autoComplete="off" minLength={3} maxLength={40} pattern="[a-z0-9]+(-[a-z0-9]+)*" required value={slug} onChange={(event) => { setSlug(event.target.value.toLowerCase()); setError(""); }} /></div><p className="form-help">Generated from your shop name. You can edit it before creating your shop.</p>
+            {slugAvailability === "checking" && <p className="form-help" role="status">Checking address availability…</p>}
+            {slugAvailability === "available" && <p className="form-help slug-status form-help-success" role="status">This address is available.</p>}
+            {slugAvailability === "taken" && <p className="form-help slug-status form-help-error" role="status">This address is already in use.</p>}
+            {slugAvailability === "invalid" && <p className="form-help slug-status form-help-error" role="status">Use 3–40 lowercase letters, numbers, or single hyphens.</p>}
+            {slugAvailability === "error" && <p className="form-help slug-status" role="status">Address availability could not be checked. We’ll verify it when you create your shop.</p>}
+          </div>
           {!addAnother && <>
             <div className="form-field"><label htmlFor="owner-email">Owner email</label><input id="owner-email" type="email" autoComplete="email" maxLength={254} required value={email} onChange={(event) => setEmail(event.target.value)} /></div>
             <div className="form-field"><label htmlFor="owner-password">Password</label><input id="owner-password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /><p className="form-help">Use at least 12 characters.</p></div>
           </>}
           {error && <Alert>{error}</Alert>}
-          <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Creating shop…" : addAnother ? "Add shop" : "Create shop"}</button>
+          <button className="button button-primary" type="submit" disabled={busy || slugAvailability === "checking" || slugAvailability === "taken" || slugAvailability === "invalid"}>{busy ? "Creating shop…" : addAnother ? "Add shop" : "Create shop"}</button>
         </form>
         <Link className="back-link" to={addAnother ? "/dashboard/shops" : "/dashboard/login"}>{addAnother ? "Back to your shops" : "Already have an account? Sign in"}</Link>
       </section>
