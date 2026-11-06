@@ -34,6 +34,7 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
   const stopTimerRef = useRef<number | null>(null);
   const voiceIdRef = useRef("");
   const sendLockRef = useRef(false);
+  const mountedRef = useRef(false);
 
   const logVoice = (stage: string, outcome: "start" | "success" | "failure", reason?: unknown) => {
     const errorName = reason instanceof Error ? reason.name : undefined;
@@ -50,13 +51,17 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
     chunksRef.current = [];
   };
 
-  useEffect(() => () => {
-    const recorder = recorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      recorder.onstop = null;
-      recorder.stop();
-    }
-    releaseMicrophone();
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const recorder = recorderRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        recorder.onstop = null;
+        recorder.stop();
+      }
+      releaseMicrophone();
+    };
   }, []);
 
   const transcribe = async (audio: Blob) => {
@@ -114,6 +119,10 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
         throw new Error("Voice recording is not supported by this browser.");
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       const candidates = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/ogg"];
       const mimeType = candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
@@ -157,6 +166,10 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
         }
       }, RECORDING_LIMIT_MS);
     } catch (reason) {
+      if (!mountedRef.current) {
+        releaseMicrophone();
+        return;
+      }
       setRecording(false);
       setTranscribing(false);
       setVoiceStatus("");

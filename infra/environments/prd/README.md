@@ -17,6 +17,8 @@ terraform plan
 terraform apply
 ```
 
+If Application Default Credentials use a quota project other than `s-yatalk`, set `GOOGLE_CLOUD_QUOTA_PROJECT=s-yatalk` for the Terraform commands so Google API quota checks use this environment's project.
+
 ## Optional custom domain
 
 `yatalk.kumagaias.com` serves the web app and its API on one origin, including `/api/*`. The root domain is already verified in project `s-yatalk`, so Cloud Run can map this hostname directly to the preview service without a load balancer.

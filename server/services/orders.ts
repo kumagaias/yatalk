@@ -76,7 +76,7 @@ export async function createOrRetryOrder(db: Db, paypal: PayPalProvider, input: 
     if (["paid", "collected", "refunded", "refund_unknown", "capture_unknown", "cancelled", "expired", "create_failed"].includes(order.state)) {
       return { status: 200, body: orderReceipt(order) };
     }
-    if (order.state === "creating_payment" && createInFlight.has(order.id)) {
+    if (createInFlight.has(order.id)) {
       return { status: 202, body: { orderId: order.id, state: "create_unknown" } };
     }
     if (order.state === "create_unknown" && Date.parse(order.expires_at) <= Date.now()) {
