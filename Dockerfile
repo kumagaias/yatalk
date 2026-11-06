@@ -15,6 +15,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 FROM ${NODE_IMAGE} AS runtime
+RUN apk add --no-cache 'zlib>=1.4-r0'
 ENV NODE_ENV=production \
     APP_PORT=8080 \
     DATABASE_PATH=/tmp/yatalk/yatalk.sqlite
