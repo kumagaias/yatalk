@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import type { AppConfig } from "../config.js";
-import { createShopRecord, type Db, type Shop } from "../database.js";
+import { createShopRecord, getShopBySlug, type Db, type Shop } from "../database.js";
 import { ApiError } from "../errors.js";
 import { logStage } from "../logging.js";
 import { clearOwnerSession, hashOwnerPassword, ownerFromRequest, requireOwner, startOwnerSession, verifyOwnerPassword } from "../owner-auth.js";
 import { createRateLimit, ipKey } from "../rate-limit.js";
 import { requireExactOrigin } from "../security.js";
 import { parseBody, requireEmptyBody, requireJson } from "../http.js";
-import { addShopRequestSchema, createShopRequestSchema, ownerLoginRequestSchema } from "../../shared/schemas.js";
+import { addShopRequestSchema, createShopRequestSchema, ownerLoginRequestSchema, shopSlugSchema } from "../../shared/schemas.js";
 
 const dummyPasswordHash = `scrypt$16384$8$1$${Buffer.alloc(16).toString("base64url")}$${Buffer.alloc(64).toString("base64url")}`;
 
@@ -59,12 +59,18 @@ export function tenantRoutes(db: Db, config: AppConfig): Router {
   const originOnly = requireExactOrigin(config);
   const ownerOnly = requireOwner(db);
   const signupPerIp = createRateLimit(3, 60 * 60_000, ipKey);
+  const slugCheckPerIp = createRateLimit(60, 60_000, ipKey);
   const loginPerIp = createRateLimit(5, 15 * 60_000, ipKey);
   const loginPerEmail = createRateLimit(10, 15 * 60_000, (request) => {
     const email = request.body && typeof request.body === "object" ? (request.body as Record<string, unknown>).email : "";
     return typeof email === "string" ? email.trim().toLowerCase().slice(0, 254) : "missing";
   });
   const addShopPerOwner = createRateLimit(6, 60 * 60_000, (request) => request.ownerUserId ?? ipKey(request));
+
+  router.get("/shops/slug-availability/:slug", slugCheckPerIp, (request, response) => {
+    const parsed = shopSlugSchema.safeParse(request.params.slug);
+    response.json({ available: parsed.success && !getShopBySlug(db, parsed.data) });
+  });
 
   router.post("/shops", originOnly, signupPerIp, async (request, response) => {
     requireJson(request);

@@ -48,3 +48,28 @@ test("PayPal webhook verification fails closed without a configured webhook ID",
   assert.equal(await client.verifyWebhook({ authAlgorithm: "", certUrl: "", transmissionId: "", transmissionSig: "", transmissionTime: "", webhookId: "" }, {}), false);
   assert.equal(requests, 0);
 });
+
+test("PayPal capture reads custom ID from the captured payment when absent from the purchase unit", async () => {
+  const responses = [
+    new Response(JSON.stringify({ access_token: "unit-token", expires_in: 300 }), { status: 200 }),
+    new Response(JSON.stringify({
+      id: "paypal-order-1", status: "COMPLETED", purchase_units: [{
+        reference_id: "local-order-1", amount: { currency_code: "JPY", value: "300" },
+        payments: { captures: [{
+          id: "capture-1", status: "COMPLETED", custom_id: "local-order-1",
+          amount: { currency_code: "JPY", value: "300" },
+        }] },
+      }],
+    }), { status: 201 }),
+  ];
+  const client = new PayPalClient(config, async () => responses.shift()!);
+
+  const captured = await client.captureOrder("paypal-order-1", "capture-request-1");
+
+  assert.equal(captured.orderId, "paypal-order-1");
+  assert.equal(captured.referenceId, "local-order-1");
+  assert.equal(captured.customId, "local-order-1");
+  assert.equal(captured.captureStatus, "COMPLETED");
+  assert.equal(captured.currency, "JPY");
+  assert.equal(captured.amountMinor, 300);
+});

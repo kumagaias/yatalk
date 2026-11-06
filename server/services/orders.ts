@@ -27,13 +27,29 @@ function paypalItems(db: Db, order: OrderRow) {
     quantity: line.quantity, unitAmount: line.unit_price_minor }));
 }
 
-function ensureCaptureMatches(order: OrderRow, result: Awaited<ReturnType<PayPalProvider["getOrder"]>>): string {
-  if (result.orderId !== order.paypal_order_id || result.referenceId !== order.id || result.customId !== order.id ||
-      result.currency !== order.currency || result.amountMinor !== order.total_minor ||
-      result.orderStatus !== "COMPLETED" || result.captureStatus !== "COMPLETED" || !result.captureId) {
-    throw new ApiError(502, "payment_verification_failed", "Payment status could not be verified. Please retry or contact the organizer.");
+function ensureCaptureMatches(
+  order: OrderRow,
+  result: Awaited<ReturnType<PayPalProvider["getOrder"]>>,
+  requestId: string,
+): string {
+  const verification = {
+    orderIdMatches: result.orderId === order.paypal_order_id,
+    referenceIdMatches: result.referenceId === order.id,
+    customIdMatches: result.customId === order.id,
+    currencyMatches: result.currency === order.currency,
+    amountMatches: result.amountMinor === order.total_minor,
+    orderCompleted: result.orderStatus === "COMPLETED",
+    captureCompleted: result.captureStatus === "COMPLETED",
+    captureIdPresent: !!result.captureId,
+  };
+  logStage(requestId, "paypal_capture_verification", "start");
+  if (Object.values(verification).some((matches) => !matches)) {
+    const error = new ApiError(502, "payment_verification_failed", "Payment status could not be verified. Please retry or contact the organizer.");
+    logStage(requestId, "paypal_capture_verification", "failure", error, verification);
+    throw error;
   }
-  return result.captureId;
+  logStage(requestId, "paypal_capture_verification", "success");
+  return result.captureId!;
 }
 
 function providerMessage(error: unknown): ApiError {
@@ -137,7 +153,7 @@ export async function captureOrder(db: Db, paypal: PayPalProvider, sessionHash: 
       throw new ApiError(502, "payment_verification_failed", "Payment details could not be verified. Contact the organizer.");
     }
     if (observed.orderStatus === "COMPLETED" && observed.captureStatus === "COMPLETED" && observed.captureId) {
-      const captureId = ensureCaptureMatches(order, observed);
+      const captureId = ensureCaptureMatches(order, observed, requestId);
       return orderReceipt(completeCapture(db, order.id, captureId, shopId));
     }
     if (observed.orderStatus !== "APPROVED") {
@@ -153,7 +169,7 @@ export async function captureOrder(db: Db, paypal: PayPalProvider, sessionHash: 
       logStage(requestId, "paypal_capture_request", "start");
       const captured = await paypal.captureOrder(order.paypal_order_id!, order.paypal_capture_request_id);
       logStage(requestId, "paypal_capture_request", "success");
-      const captureId = ensureCaptureMatches(order, captured);
+      const captureId = ensureCaptureMatches(order, captured, requestId);
       return orderReceipt(completeCapture(db, order.id, captureId, shopId));
     } catch (error) {
       logStage(requestId, "paypal_capture_request", "failure", error);

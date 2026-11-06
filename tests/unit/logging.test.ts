@@ -34,3 +34,11 @@ test("provider stage logs exclude provider error messages", () => {
   assert.equal(record.providerDefinite, false);
   assert.equal(record.message, undefined);
 });
+
+test("stage logs can include safe boolean diagnostics without values", () => {
+  const record = loggedRecord(() => logStage("request-789", "paypal_capture_verification", "failure",
+    new ApiError(502, "payment_verification_failed"), { amountMatches: false, orderCompleted: true }));
+  assert.equal(record.amountMatches, false);
+  assert.equal(record.orderCompleted, true);
+  assert.equal(JSON.stringify(record).includes("paypal_order_id"), false);
+});

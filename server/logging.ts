@@ -9,13 +9,20 @@ function errorFields(error: unknown): Record<string, unknown> {
   return error instanceof Error ? { errorClass: error.name } : {};
 }
 
-export function logStage(requestId: string, stage: string, outcome: "start" | "success" | "failure", error?: unknown): void {
+export function logStage(
+  requestId: string,
+  stage: string,
+  outcome: "start" | "success" | "failure",
+  error?: unknown,
+  details?: Record<string, boolean>,
+): void {
   const record = {
     timestamp: new Date().toISOString(),
     correlationId: requestId,
     stage,
     outcome,
     ...(error === undefined ? {} : errorFields(error)),
+    ...(details === undefined ? {} : details),
   };
   console.info(JSON.stringify(record));
 }

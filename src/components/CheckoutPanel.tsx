@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { AppConfig, Cart, CreateOrderResponse, Order } from "../types";
 import { ApiError, get, post } from "../lib/api";
+import { persistCheckoutAttempt } from "../lib/checkout-storage";
 import { createRequestKey, money } from "../lib/format";
 import { isReceiptReady } from "../lib/order-status";
 import { Alert } from "./Feedback";
@@ -84,11 +85,7 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
 
   useEffect(() => {
     try {
-      if (attempt.state === "paid" || attempt.state === "cancelled") {
-        sessionStorage.removeItem(STORAGE_KEY);
-        return;
-      }
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(attempt));
+      persistCheckoutAttempt(sessionStorage, STORAGE_KEY, attempt);
     } catch {
       setStatusMessage("This browser cannot save retry details. Keep this tab open while checkout is in progress.");
     }

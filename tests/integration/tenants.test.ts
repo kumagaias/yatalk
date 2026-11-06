@@ -113,6 +113,31 @@ test("tenant routes reject invalid shops and writes without the exact origin", a
   });
 });
 
+test("shop slug availability reports reserved and existing addresses", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const slug = `available-${Math.random().toString(36).slice(2, 10)}`;
+    const available = await json(`${url}/api/v1/shops/slug-availability/${slug}`);
+    assert.equal(available.response.status, 200);
+    assert.deepEqual(available.body, { available: true });
+
+    const created = await createOwner(url, slug, `availability-${slug}@example.test`);
+    const taken = await json(`${url}/api/v1/shops/slug-availability/${created.shop.slug}`);
+    assert.equal(taken.response.status, 200);
+    assert.deepEqual(taken.body, { available: false });
+
+    const duplicate = await json(`${url}/api/v1/shops`, {
+      method: "POST", headers: { origin, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Duplicate", slug, email: `duplicate-${slug}@example.test`, password: "a-test-password-123" }),
+    });
+    assert.equal(duplicate.response.status, 409);
+    assert.equal(duplicate.body.error.code, "shop_slug_taken");
+
+    const reserved = await json(`${url}/api/v1/shops/slug-availability/new`);
+    assert.equal(reserved.response.status, 200);
+    assert.deepEqual(reserved.body, { available: false });
+  });
+});
+
 test("owner sign-in, session revocation, reserved slugs, and webhook alias behave as designed", async () => {
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);

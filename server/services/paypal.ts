@@ -48,7 +48,7 @@ function extractCapture(orderId: string, body: unknown): PayPalCaptureResult {
   return {
     orderId: string(root.id) ?? orderId,
     orderStatus: string(root.status) ?? "UNKNOWN",
-    referenceId: string(unit.reference_id), customId: string(unit.custom_id),
+    referenceId: string(unit.reference_id), customId: string(unit.custom_id) ?? string(capture.custom_id),
     captureId: string(capture.id), captureStatus: string(capture.status),
     currency: amount.currency, amountMinor: amount.minor,
   };

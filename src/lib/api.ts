@@ -12,6 +12,7 @@ export class ApiError extends Error {
 
 export function resolveApiPath(path: string, pathname = globalThis.location?.pathname ?? "/"): string {
   if (!path.startsWith("/api/")) return path;
+  if (path.startsWith("/api/v1/")) return path;
   const shopPage = /^\/shops\/([a-z0-9-]+)(?:\/|$)/.exec(pathname);
   if (shopPage) return `/api/v1/shops/${shopPage[1]}${path.slice(4)}`;
   const dashboardPage = /^\/dashboard\/shops\/([a-z0-9-]+)(?:\/|$)/.exec(pathname);
