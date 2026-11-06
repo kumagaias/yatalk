@@ -47,10 +47,9 @@ export function CartPanel({ cart, config, busy, error, onChange, onClear, onRetr
           <button className="text-button clear-cart" type="button" onClick={onClear} disabled={busy}><Trash2 size={15} aria-hidden="true" />Clear cart</button>
           <div className="cart-total"><span>Total</span><strong>{money(cart.totalMinor, cart.currency)}</strong></div>
           {cart.items.some((item) => item.quantity > item.available) && <p className="stock-note">One or more quantities exceed current availability. Update your order before checkout.</p>}
-          <CheckoutPanel config={config} cart={cart} cartBusy={busy} onCart={onCart} />
         </>
       )}
-      {cart && cart.items.length === 0 && <CheckoutPanel config={config} cart={cart} cartBusy={busy} onCart={onCart} />}
+      {cart && <CheckoutPanel config={config} cart={cart} cartBusy={busy} onCart={onCart} />}
     </section>
   );
 }

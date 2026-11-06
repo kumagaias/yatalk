@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { AppConfig, Cart, CreateOrderResponse, Order } from "../types";
 import { ApiError, get, post } from "../lib/api";
-import { persistCheckoutAttempt } from "../lib/checkout-storage";
+import { checkoutStorageKey, persistCheckoutAttempt, readCheckoutAttempt } from "../lib/checkout-storage";
 import { createRequestKey, money } from "../lib/format";
 import { isReceiptReady } from "../lib/order-status";
 import { Alert } from "./Feedback";
 
-const STORAGE_KEY = "yatalk.checkout.v1";
+function currentShopSlug(): string {
+  return /^\/shops\/([a-z0-9-]+)(?:\/|$)/.exec(globalThis.location?.pathname ?? "")?.[1] ?? "little-harbor-market";
+}
 type CheckoutState = "idle" | "creating" | "create_unknown" | "ready" | "capturing" | "capture_unknown" | "canceling" | "cancel_unknown" | "paid" | "cancelled" | "error";
 type Attempt = {
   clientRequestKey: string;
@@ -26,7 +28,7 @@ type Attempt = {
 
 function restoreAttempt(): Attempt {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = readCheckoutAttempt(sessionStorage, currentShopSlug());
     if (raw) {
       const restored = JSON.parse(raw) as Attempt;
       if (restored.state === "creating") restored.state = "create_unknown";
@@ -85,7 +87,7 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
 
   useEffect(() => {
     try {
-      persistCheckoutAttempt(sessionStorage, STORAGE_KEY, attempt);
+      persistCheckoutAttempt(sessionStorage, checkoutStorageKey(currentShopSlug()), attempt);
     } catch {
       setStatusMessage("This browser cannot save retry details. Keep this tab open while checkout is in progress.");
     }

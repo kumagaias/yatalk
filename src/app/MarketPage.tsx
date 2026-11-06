@@ -14,6 +14,10 @@ type ChatHistoryItem = { role: "user" | "assistant"; content: string };
 
 export function MarketPage() {
   const { shopSlug } = useParams();
+  return <ShopMarketPage key={shopSlug} shopSlug={shopSlug} />;
+}
+
+function ShopMarketPage({ shopSlug }: { shopSlug?: string }) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [cart, setCart] = useState<Cart | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
