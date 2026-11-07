@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { FakePayPal, json, origin, postHeaders, withServer } from "./support.js";
 
@@ -121,35 +122,36 @@ test("shop menu photo extraction requires the owner, checks image content, and s
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);
     const owner = await createOwner(url, `shop-menu-${suffix}`, `menu-${suffix}@example.test`);
-    const image = new Uint8Array([0xff, 0xd8, 0xff, 0x00]);
+    const image = readFileSync(new URL("../fixtures/menu-ocr-test.png", import.meta.url));
     const scanUrl = `${url}/api/v1/dashboard/shops/${owner.shop.slug}/menu/scan`;
 
-    const unauthenticated = await fetch(scanUrl, { method: "POST", headers: { origin, "content-type": "image/jpeg" }, body: image });
+    const unauthenticated = await fetch(scanUrl, { method: "POST", headers: { origin, "content-type": "image/png" }, body: image });
     assert.equal(unauthenticated.status, 401);
-    const wrongOrigin = await fetch(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin: "https://attacker.example", "content-type": "image/jpeg" }, body: image });
+    const wrongOrigin = await fetch(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin: "https://attacker.example", "content-type": "image/png" }, body: image });
     assert.equal(wrongOrigin.status, 403);
-    const mismatched = await fetch(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/png" }, body: image });
+    const mismatched = await fetch(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/jpeg" }, body: image });
     assert.equal(mismatched.status, 415);
 
-    const scanned = await json(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/jpeg" }, body: image });
+    const scanned = await json(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/png" }, body: image });
     assert.equal(scanned.response.status, 200);
-    assert.equal(scanned.body.items[0].name, "Sample tea");
-    assert.equal(scanned.body.items[0].priceMinor, 300);
+    assert.deepEqual(scanned.body.items.map((item: { name: string; priceMinor: number }) => [item.name, item.priceMinor]), [
+      ["Grilled Onigiri", 400], ["Iced Tea", 300], ["Mikan Jelly", 500],
+    ]);
     const emptyMenu = await json(`${url}/api/v1/shops/${owner.shop.slug}/menu`);
     assert.deepEqual(emptyMenu.body.products, []);
 
     const unreviewed = await json(`${url}/api/v1/dashboard/shops/${owner.shop.slug}/products/bulk`, {
       method: "POST", headers: postHeaders(owner.cookie),
-      body: JSON.stringify({ products: [{ name: "Sample tea", description: "Cold tea", priceMinor: null, stockOnHand: 10, dietaryNote: "" }] }),
+      body: JSON.stringify({ products: [{ name: "Grilled Onigiri", description: "", priceMinor: null, stockOnHand: 10, dietaryNote: "Contains soy" }] }),
     });
     assert.equal(unreviewed.response.status, 400);
     const saved = await json(`${url}/api/v1/dashboard/shops/${owner.shop.slug}/products/bulk`, {
       method: "POST", headers: postHeaders(owner.cookie),
-      body: JSON.stringify({ products: [{ name: "Sample tea", description: "Cold tea", priceMinor: 300, stockOnHand: 10, dietaryNote: "" }] }),
+      body: JSON.stringify({ products: [{ name: "Grilled Onigiri", description: "", priceMinor: 400, stockOnHand: 10, dietaryNote: "Contains soy" }] }),
     });
     assert.equal(saved.response.status, 201);
     const published = await json(`${url}/api/v1/shops/${owner.shop.slug}/menu`);
-    assert.equal(published.body.products[0].name, "Sample tea");
+    assert.equal(published.body.products[0].name, "Grilled Onigiri");
     assert.equal(published.body.products[0].available, 10);
   });
 });
