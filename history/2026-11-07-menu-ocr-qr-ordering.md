@@ -10,3 +10,4 @@
 - Hosted smoke checks: `/`, `/api/health` (`{"ok":true}`), `/shops/new`, `/shops/little-harbor-market`, and `/dashboard/login` returned HTTP 200. The deployed bundle contains menu photo setup, shop QR, and voice-order UI copy.
 - Live OCR verification: ImageGen created `tests/fixtures/menu-ocr-test.png` (2.6 MB PNG). The owner-authenticated preview endpoint returned HTTP 200 and extracted Grilled Onigiri ¥400 with “Contains soy”, Iced Tea ¥300, and Mikan Jelly ¥500. A temporary empty test shop was created for the request; no product was saved or published and no PayPal payment was made.
 - Updated the integration coverage to use the generated PNG fixture for upload validation, reviewed product creation, and publication checks.
+- Verification commit: `d707e70` (`test: add OCR photo fixture`). This test-only change does not require another deployment.
