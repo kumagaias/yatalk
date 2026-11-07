@@ -84,6 +84,7 @@ const fakeAi: AiProvider = {
   async interpretCart() { return { reply: "I can help with that.", clarification: null, operations: [] }; },
   async explainFacts() { return "Sales and stock are based on the dashboard figures."; },
   async transcribeAudio() { return "Two yakisoba and one iced tea"; },
+  async extractMenu() { return { items: [{ name: "Sample tea", description: "Cold tea", priceMinor: 300, dietaryNote: "" }] }; },
 };
 
 export async function withServer<T>(paypal: FakePayPal, work: (url: string, db: ReturnType<typeof createDatabase>) => Promise<T>, assistant: AiProvider = fakeAi): Promise<T> {

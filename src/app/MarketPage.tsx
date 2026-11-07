@@ -158,7 +158,7 @@ function ShopMarketPage({ shopSlug }: { shopSlug?: string }) {
           <div className="hero-copy">
             <p className="hero-kicker"><span />A neighborhood market, made easier</p>
             <h1 id="hero-heading">A little market.<br /><span>A lot less waiting.</span></h1>
-            <p className="hero-description">Find a favorite, chat your order, then pay securely with PayPal. We’ll have it ready at the stall.</p>
+            <p className="hero-description">Build your order by voice or chat, then pay securely with PayPal. We’ll have it ready at the stall.</p>
             <a className="hero-action" href="#market-menu">Explore today’s menu <ArrowDown size={16} aria-hidden="true" /></a>
           </div>
           <div className="hero-note" aria-label="Market note">

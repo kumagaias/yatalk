@@ -9,9 +9,9 @@
 
 Yatalk is a conversational checkout and lightweight operations desk for local shops and one-day community markets. Owners create path-based shop pages; each visitor describes what they want in plain language, reviews a shop-priced cart, and pays through PayPal. Each shop's owner manages its stock and orders, then asks an AI assistant questions grounded in that shop's sales and inventory totals.
 
-**One-line pitch:** “Less line, more market: order from a community stall by chatting, pay with PayPal, and let organizers keep service moving.”
+**One-line pitch:** “Less line, more market: add a stall menu from a photo, order by voice or chat, and pay with PayPal.”
 
-**Core demo moment:** A visitor types “Two yakisoba and one iced tea.” Yatalk recognizes the products, confirms available stock, shows a receipt calculated by the server, and opens PayPal checkout. After sandbox approval, the visitor gets a pickup code; the organizer dashboard immediately reflects the sale and can answer “What is almost sold out?” with database-backed figures.
+**Core demo moment:** An owner creates a shop, uploads a menu photo, reviews the suggested items and prices, enters stock, and shares the shop QR code. A visitor scans it, orders “Two yakisoba and one iced tea” by voice or chat, reviews the transcript and cart, and pays through PayPal Sandbox. After approval, the visitor gets a pickup code; the dashboard reflects the sale and can answer “What is almost sold out?” with database-backed figures.
 
 The fictional demo venue is **Little Harbor Market** in Tokyo. The seeded menu uses a small set of familiar market foods and drinks, with fictional prices, stock, and dietary notes.
 
@@ -40,20 +40,21 @@ Volunteer organizers need a fast way to see current orders, remaining stock, and
 
 ### MVP
 
-1. English, responsive platform entry page and path-based shop storefronts with seeded fictional menu data.
+1. English, responsive platform entry page and path-based shop storefronts. The Little Harbor sample has fictional seeded data; newly created shops start with an empty menu.
 2. Product cards with availability, price, and dietary notes.
 3. AI chat that turns natural-language requests into validated cart changes and asks for clarification when needed.
 4. Server-maintained cart, exact price calculation, stock check, and explicit order confirmation.
 5. PayPal sandbox checkout: create order on the server, buyer approval in the PayPal JavaScript SDK, server capture, and a durable receipt with a pickup code.
-6. Shop owner accounts, per-shop dashboards for live orders, sales, inventory editing, and collection; preserve the access-code login for the Little Harbor demo.
+6. Shop owner accounts, per-shop dashboards for menu photo OCR suggestions, manual menu entry, live orders, sales, inventory editing, and collection; preserve the access-code login for the Little Harbor demo.
 7. Organizer AI Q&A whose numeric facts are calculated in SQL before being explained in natural language.
 8. Full refund of a paid, not-yet-collected order, initiated only by an authenticated organizer after an explicit confirmation; organizer chooses whether to return the items to stock.
 9. Verified, idempotent PayPal webhooks for capture and refund updates.
 10. Setup guide, sandbox configuration, OSS license, focused tests, and a three-minute-or-shorter demo plan.
+11. A locally generated shop QR code that opens the storefront; buyers can review a dictated order and use the existing PayPal Sandbox checkout.
 
 ### Deferred
 
-- QR scanning at pickup (receipt shows a pickup code for the MVP; organizers can search or enter it).
+- QR scanning at pickup (the MVP QR code opens the shop; the receipt shows a pickup code that organizers can search or enter).
 - Verified owner email and password recovery, customer accounts, email/SMS, delivery, recurring billing, per-shop live merchant onboarding and settlement, and production payment processing.
 - AG Grid and other sponsor products. A small order queue is clearer for the first release; sponsor integration would consume time without strengthening the core flow.
 - Partial refunds, customer-requested refund workflows, and automatic refund recommendations.
@@ -70,10 +71,10 @@ Volunteer organizers need a fast way to see current orders, remaining stock, and
 ### Customer storefront (`/shops/:shopSlug`)
 
 - Header: Yatalk wordmark, shop name, “Open now” status, and an `Owner` link.
-- Hero: “A little market. A lot less waiting.” One short line explaining chat ordering and PayPal checkout.
+- Hero: “A little market. A lot less waiting.” One short line explaining voice or chat ordering and PayPal checkout.
 - Main workspace: centered page with a 72px header, short hero, and a 12-column content grid (menu 7 columns; chat and order summary 5 columns). The chat card sits above a sticky cart on desktop; on mobile, stack chat, cart, then the menu with no horizontal scrolling.
 - Menu: item name, short description, price, dietary note when supplied, remaining availability, and an `Add` control. Out-of-stock items remain visible with a plain unavailable state.
-- Chat: one example prompt (“Two yakisoba and one iced tea”), concise assistant replies, visible progress, and a persistent input. The chat does not claim that an item is allergen-safe when its notes are incomplete.
+- Voice/chat: a microphone records a short order and sends it to Google Cloud for transcription. The transcript appears in an editable field and the visitor reviews it before sending. The assistant can ask for clarification and never claims success until server cart operations complete. The chat does not claim that an item is allergen-safe when its notes are incomplete.
 - Cart: item, quantity controls, server-returned line totals and total, stock warnings, `Clear cart`, and a `Confirm order` action. PayPal UI appears only after confirmation.
 - Checkout: PayPal Smart Buttons loaded with the public sandbox client ID. A setup message replaces the checkout controls when required sandbox configuration is missing.
 - Success: order number, pickup code, total, and order status. The pickup code is generated only when a verified PayPal capture moves the order to `paid`; it is never shown for pending, cancelled, or uncertain payments. No customer name, email, or payment details are collected by Yatalk.
@@ -81,6 +82,8 @@ Volunteer organizers need a fast way to see current orders, remaining stock, and
 ### Shop owner sign-in (`/dashboard/login`)
 
 Owners sign in by email and password, see their shops at `/dashboard/shops`, and open each shop dashboard at `/dashboard/shops/:shopSlug`. Each dashboard request checks both the owner session and membership for the resolved shop. The public slug never grants management access. Shop addresses are immutable in this prototype.
+
+Each new shop starts with no products. Its authenticated dashboard lets the owner select a JPEG, PNG, WebP, HEIC, or HEIF menu photo up to 4 MB, request structured OCR suggestions, correct every field, enter the current stock, and save reviewed items. The image is sent to Vertex AI for extraction and is not stored by Yatalk. Manual entry uses the same editable draft form and server validation. The dashboard QR code encodes only the public shop URL.
 
 ### Little Harbor demo sign-in (`/organizer`)
 
@@ -299,6 +302,13 @@ Refund, capture, and stock changes are never exposed as AI tools. Each organizer
 - AI never sees PayPal credentials, captures, refunds, private admin data, or full webhook payloads.
 - Dietary/allergen answers use only organizer-entered notes. Missing or ambiguous notes result in a prompt to ask the stall organizer.
 
+### Menu photo reader
+
+- Only an authenticated shop owner can upload a menu photo. The API checks exact Origin, shop membership, a 4 MB body limit, an allowlisted MIME type and matching file signature, a per-owner rate limit, and one in-flight scan per owner.
+- The model extracts only clearly visible item names, descriptions, printed whole-yen prices, and explicit dietary notes. Missing or uncertain prices are returned as `null`; stock is never inferred.
+- Model output is parsed with a strict schema and displayed as an editable draft. The owner must review the name, price, and stock count and explicitly save before products are published. Failed scans preserve manual entry as a fallback.
+- Images are sent inline to Vertex AI and are not persisted by the app or written to logs.
+
 ### Organizer assistant
 
 - The server authenticates the organizer and computes aggregates with parameterized SQL.
@@ -317,6 +327,8 @@ Use a timeout, small output-token limit, bounded input, and a rate limit. Log UT
 - Organizer access code is configured at runtime; signed, expiring, `HttpOnly`, `SameSite=Lax` cookies carry session state. In production, cookies are `Secure`. Login is rate-limited and comparison is constant-time.
 - Require an exact configured origin for browser state changes. Do not enable wildcard CORS. Apply request-size limits, route-specific rate limits, parameterized SQL, and security headers.
 - Restrict public AI requests by session and IP, bound message/history size, set provider timeouts, and return sanitized errors. No production payment mode is included.
+- Restrict menu OCR to authenticated owners, bound and validate uploads before model use, rate-limit and time-bound scans, and never trust model-suggested prices or dietary notes as verified facts. Products publish only after explicit owner review.
+- The hackathon demo uses one app-configured PayPal Sandbox seller account. Shop owners sign in to Yatalk and do not connect a PayPal account; per-shop settlement would require PayPal partner onboarding and a separate integration.
 - Never commit `.env`, credentials, sandbox secrets, SQLite files, or tokens. `.env.example` contains placeholders only.
 
 ## 11. Failure, loading, and recovery states
@@ -338,8 +350,9 @@ Use a timeout, small output-token limit, bounded input, and a rate limit. Log UT
 ### Automated tests
 
 - Unit: integer pricing, cart operation validation, stock reservation and release, allowed state transitions, summary queries, pickup code uniqueness.
-- Integration: missing/invalid visitor and admin sessions, malformed/oversized JSON, wrong Origin, rate-limit response, idempotent create/capture/refund, rejected PayPal amount/currency mismatch, webhook signature failure and duplicate event.
-- UI smoke: first visit, empty menu/cart, chat add and clarification, manual item add, checkout cancellation, payment success (sandbox), organizer login, stock edit, pickup, and refund.
+- Unit: integer pricing, cart operation validation, menu image signature checks and OCR output schema, stock reservation and release, allowed state transitions, summary queries, pickup code uniqueness.
+- Integration: missing/invalid visitor and owner sessions, malformed/oversized JSON and image uploads, wrong Origin, menu OCR and explicit reviewed product creation, rate-limit response, idempotent create/capture/refund, rejected PayPal amount/currency mismatch, webhook signature failure and duplicate event.
+- UI smoke: first visit, empty menu/cart, voice transcript review, chat add and clarification, photo suggestions, manual item add, QR shop link, checkout cancellation, payment success (sandbox), owner login, stock edit, pickup, and refund.
 - Accessibility: normal text contrast at least 4.5:1, keyboard-only completion of chat/cart/dashboard actions, visible focus, and responsive layout at 360px width.
 - Run dependency and secret scanning before any eventual commit or release; do not commit if gitleaks reports a finding.
 
@@ -359,7 +372,7 @@ Do not claim end-to-end sandbox verification until real sandbox credentials are 
 1. Scaffold the small TypeScript app, design tokens, and fictional menu; confirm the responsive public screen renders.
 2. Create the SQLite schema, seed data, visitor sessions, catalog/cart APIs, and server-side totals.
 3. Implement AI intent parsing, schema validation, ambiguity and failure handling, then connect it to the chat UI.
-4. Add organizer session, dashboard, product edits, order queue, pickup, and SQL-backed AI answers.
+4. Add owner sessions, empty-menu setup with OCR suggestions and manual item creation, QR sharing, dashboard, product edits, order queue, pickup, and SQL-backed AI answers.
 5. Implement PayPal sandbox order creation, approval, capture, reconciliation/idempotency, and receipt.
 6. Add verified webhooks and organizer refunds with explicit restock choice.
 7. Add focused tests, README, OSS license, and error/loading/accessibility polish.
@@ -368,7 +381,7 @@ Do not claim end-to-end sandbox verification until real sandbox credentials are 
 ## 14. Hackathon proof points
 
 - **PayPal is central:** it is the payment approval and capture path for every completed checkout, not a logo or optional side feature.
-- **AI is meaningful:** it interprets open-ended purchase requests into validated cart changes and helps an organizer reason about live operations.
+- **AI is meaningful:** it reads menu photos into reviewed draft items, transcribes buyer voice requests, interprets open-ended requests into validated cart changes, and helps an organizer reason about live operations.
 - **Human control remains:** customers review exact items and totals before the PayPal UI; organizers explicitly approve refunds and stock restoration.
 - **Working project:** judges can run the source using the documented sandbox configuration or access a hosted demo if one is arranged later.
 - **Submission readiness:** public repository with visible OSS license, setup and test instructions, English text, and a functioning demo video under three minutes.

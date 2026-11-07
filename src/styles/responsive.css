@@ -39,6 +39,11 @@
   .dashboard-top { align-items: flex-start; flex-direction: column; }
   .dashboard-top .page-title { font-size: 34px; }
   .dashboard-grid { grid-template-columns: 1fr; }
+  .menu-photo-row { align-items: stretch; flex-direction: column; }
+  .menu-scan-button { width: 100%; }
+  .menu-draft-grid { grid-template-columns: 1fr; }
+  .menu-draft-description { grid-column: auto; }
+  .menu-manual-row { align-items: flex-start; flex-direction: column; }
   .landing-main { width: min(100% - 32px, 560px); padding-top: 28px; }
   .landing-hero { padding: 34px 23px; }
   .landing-owner { align-items: flex-start; flex-wrap: wrap; padding: 15px; }

@@ -70,6 +70,12 @@ export const postAudio = <T,>(path: string, audio: Blob) => requestJson<T>(path,
   body: audio,
   headers: { "Content-Type": audio.type },
 });
+
+export const postImage = <T,>(path: string, image: File) => requestJson<T>(path, {
+  method: "POST",
+  body: image,
+  headers: { "Content-Type": image.type },
+});
 export const patch = <T,>(path: string, body: unknown) => requestJson<T>(path, {
   method: "PATCH",
   body: JSON.stringify(body),

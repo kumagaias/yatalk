@@ -218,7 +218,7 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
     <section className="panel chat-panel" aria-labelledby="chat-heading">
       <div className="panel-heading">
         <div className="heading-icon chat-icon"><MessageCircle size={18} aria-hidden="true" /></div>
-        <div><p className="eyebrow">A friendly helper</p><h2 id="chat-heading">Order by chat</h2></div>
+        <div><p className="eyebrow">A friendly helper</p><h2 id="chat-heading">Order by voice or chat</h2></div>
         <span className="ai-badge"><Sparkles size={14} aria-hidden="true" />AI</span>
       </div>
       <div className="chat-thread" aria-live="polite" aria-label="Order conversation">

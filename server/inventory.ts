@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import type { Db } from "./database.js";
 import { ApiError } from "./errors.js";
 import { DEFAULT_SHOP_ID, getCatalogRevision, incrementCatalogRevision } from "./database.js";
-import type { CartOperation, ProductPatch } from "../shared/schemas.js";
+import type { CartOperation, CreateProduct, ProductPatch } from "../shared/schemas.js";
 
 export type Product = {
   id: string;
@@ -57,6 +58,25 @@ export function getProduct(db: Db, productId: string, shopId = DEFAULT_SHOP_ID):
     available: Math.max(0, row.stock_on_hand - reserved), dietaryNote: row.dietary_note,
     active: row.active === 1,
   };
+}
+
+export function createProducts(db: Db, inputs: CreateProduct[], shopId = DEFAULT_SHOP_ID): Product[] {
+  const transaction = db.transaction(() => {
+    const row = db.prepare("SELECT COUNT(*) AS count FROM products WHERE shop_id = ? AND active = 1").get(shopId) as { count: number };
+    if (row.count + inputs.length > 30) {
+      throw new ApiError(409, "menu_item_limit", "A shop can have up to 30 active menu items.");
+    }
+    const now = new Date().toISOString();
+    const insert = db.prepare(`INSERT INTO products
+      (id, shop_id, name, description, price_minor, currency, stock_on_hand, dietary_note, active, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'JPY', ?, ?, 1, ?)`);
+    const ids = inputs.map(() => randomUUID());
+    inputs.forEach((product, index) => insert.run(ids[index], shopId, product.name, product.description,
+      product.priceMinor, product.stockOnHand, product.dietaryNote, now));
+    incrementCatalogRevision(db, shopId);
+    return ids.map((id) => getProduct(db, id, shopId)!);
+  });
+  return transaction.immediate();
 }
 
 export function menuResponse(db: Db, eventName: string, shopId = DEFAULT_SHOP_ID) {

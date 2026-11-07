@@ -22,6 +22,16 @@ async function visitor(url: string, slug: string) {
   return { cookie, cart: body };
 }
 
+async function addMenuItem(url: string, slug: string, cookie: string, name = "Test yakisoba") {
+  const created = await json(`${url}/api/v1/dashboard/shops/${slug}/products/bulk`, {
+    method: "POST", headers: postHeaders(cookie), body: JSON.stringify({ products: [{
+      name, description: "A test menu item", priceMinor: 750, stockOnHand: 12, dietaryNote: "Contains wheat.",
+    }] }),
+  });
+  assert.equal(created.response.status, 201);
+  return created.body.products[0];
+}
+
 test("store registration creates path-addressed shops with separate menus and carts", async () => {
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);
@@ -33,13 +43,19 @@ test("store registration creates path-addressed shops with separate menus and ca
     assert.equal(secondMenu.response.status, 200);
     assert.equal(firstMenu.body.event.name, first.shop.name);
     assert.equal(secondMenu.body.event.name, second.shop.name);
-    assert.notEqual(firstMenu.body.products[0].id, secondMenu.body.products[0].id);
+    assert.deepEqual(firstMenu.body.products, []);
+    assert.deepEqual(secondMenu.body.products, []);
+    const firstItem = await addMenuItem(url, first.shop.slug, first.cookie);
+    const secondItem = await addMenuItem(url, second.shop.slug, second.cookie);
+    assert.notEqual(firstItem.id, secondItem.id);
+    const updatedFirstMenu = await json(`${url}/api/v1/shops/${first.shop.slug}/menu`);
+    const updatedSecondMenu = await json(`${url}/api/v1/shops/${second.shop.slug}/menu`);
 
     const firstVisitor = await visitor(url, first.shop.slug);
     const secondVisitor = await visitor(url, second.shop.slug);
     const added = await json(`${url}/api/v1/shops/${first.shop.slug}/cart/items`, {
       method: "POST", headers: postHeaders(firstVisitor.cookie),
-      body: JSON.stringify({ action: "add", productId: firstMenu.body.products[0].id, quantity: 1,
+      body: JSON.stringify({ action: "add", productId: updatedFirstMenu.body.products[0].id, quantity: 1,
         cartVersion: firstVisitor.cart.cartVersion, catalogRevision: firstVisitor.cart.catalogRevision }),
     });
     assert.equal(added.response.status, 200);
@@ -47,7 +63,7 @@ test("store registration creates path-addressed shops with separate menus and ca
     assert.deepEqual(untouched.body.items, []);
     const foreignProduct = await json(`${url}/api/v1/shops/${first.shop.slug}/cart/items`, {
       method: "POST", headers: postHeaders(firstVisitor.cookie),
-      body: JSON.stringify({ action: "add", productId: secondMenu.body.products[0].id, quantity: 1,
+      body: JSON.stringify({ action: "add", productId: updatedSecondMenu.body.products[0].id, quantity: 1,
         cartVersion: added.body.cartVersion, catalogRevision: added.body.catalogRevision }),
     });
     assert.equal(foreignProduct.response.status, 400);
@@ -59,6 +75,7 @@ test("shop owners can manage only their own orders, inventory, and summaries", a
     const suffix = Math.random().toString(36).slice(2, 10);
     const first = await createOwner(url, `shop-owner-a-${suffix}`, `owner-a-${suffix}@example.test`);
     const second = await createOwner(url, `shop-owner-b-${suffix}`, `owner-b-${suffix}@example.test`);
+    await addMenuItem(url, first.shop.slug, first.cookie);
     const menu = await json(`${url}/api/v1/shops/${first.shop.slug}/menu`);
     const customer = await visitor(url, first.shop.slug);
     const added = await json(`${url}/api/v1/shops/${first.shop.slug}/cart/items`, {
@@ -97,6 +114,43 @@ test("shop owners can manage only their own orders, inventory, and summaries", a
       method: "PATCH", headers: postHeaders(second.cookie), body: JSON.stringify({ stockOnHand: 99 }),
     });
     assert.equal(foreignProduct.response.status, 404);
+  });
+});
+
+test("shop menu photo extraction requires the owner, checks image content, and saves only reviewed menu items", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const owner = await createOwner(url, `shop-menu-${suffix}`, `menu-${suffix}@example.test`);
+    const image = new Uint8Array([0xff, 0xd8, 0xff, 0x00]);
+    const scanUrl = `${url}/api/v1/dashboard/shops/${owner.shop.slug}/menu/scan`;
+
+    const unauthenticated = await fetch(scanUrl, { method: "POST", headers: { origin, "content-type": "image/jpeg" }, body: image });
+    assert.equal(unauthenticated.status, 401);
+    const wrongOrigin = await fetch(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin: "https://attacker.example", "content-type": "image/jpeg" }, body: image });
+    assert.equal(wrongOrigin.status, 403);
+    const mismatched = await fetch(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/png" }, body: image });
+    assert.equal(mismatched.status, 415);
+
+    const scanned = await json(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/jpeg" }, body: image });
+    assert.equal(scanned.response.status, 200);
+    assert.equal(scanned.body.items[0].name, "Sample tea");
+    assert.equal(scanned.body.items[0].priceMinor, 300);
+    const emptyMenu = await json(`${url}/api/v1/shops/${owner.shop.slug}/menu`);
+    assert.deepEqual(emptyMenu.body.products, []);
+
+    const unreviewed = await json(`${url}/api/v1/dashboard/shops/${owner.shop.slug}/products/bulk`, {
+      method: "POST", headers: postHeaders(owner.cookie),
+      body: JSON.stringify({ products: [{ name: "Sample tea", description: "Cold tea", priceMinor: null, stockOnHand: 10, dietaryNote: "" }] }),
+    });
+    assert.equal(unreviewed.response.status, 400);
+    const saved = await json(`${url}/api/v1/dashboard/shops/${owner.shop.slug}/products/bulk`, {
+      method: "POST", headers: postHeaders(owner.cookie),
+      body: JSON.stringify({ products: [{ name: "Sample tea", description: "Cold tea", priceMinor: 300, stockOnHand: 10, dietaryNote: "" }] }),
+    });
+    assert.equal(saved.response.status, 201);
+    const published = await json(`${url}/api/v1/shops/${owner.shop.slug}/menu`);
+    assert.equal(published.body.products[0].name, "Sample tea");
+    assert.equal(published.body.products[0].available, 10);
   });
 });
 

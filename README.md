@@ -1,6 +1,6 @@
 # Yatalk
 
-Yatalk helps local shops take orders through conversation. Owners create path-based storefronts, where visitors can browse a menu, describe an order in plain English, review the server-priced cart, and pay in PayPal Sandbox. Each shop has its own cart, inventory, orders, and operations dashboard.
+Yatalk helps local shops take orders through conversation. Owners create path-based storefronts, add menu items from a photo or by hand, and share a QR code. Visitors can browse, order by voice or chat, review the server-priced cart, and pay in PayPal Sandbox. Each shop has its own cart, inventory, orders, and operations dashboard.
 
 ## Requirements
 
@@ -33,7 +33,7 @@ Yatalk helps local shops take orders through conversation. Owners create path-ba
 
 7. Open <http://127.0.0.1:5173>. Create a sample shop at `/shops/new`, open the Little Harbor example at `/shops/little-harbor-market`, or sign in at `/dashboard/login`. The original `/organizer` login remains for the Little Harbor demo.
 
-The app seeds fictional Little Harbor Market products on first run. Newly created shops begin with copies of that sample menu. Local SQLite data is stored in `.data/` and is ignored by Git. Voice recordings up to 20 seconds are sent to Google Cloud for transcription. Yatalk does not store recordings; the transcript appears as editable text and must be reviewed before it can be sent as an order. If a required provider is not configured, Yatalk keeps menu browsing and manual cart editing available and clearly disables that provider action. See [the URL and tenant design](docs/yatalk-url-design.md) for routes and prototype limitations.
+The app seeds fictional Little Harbor Market products on first run. Newly created shops start with an empty menu. Owners can send a JPEG, PNG, WebP, HEIC, or HEIF menu photo (up to 4 MB) to Google Cloud for OCR suggestions, then edit item details and enter stock counts before saving. Photos are not stored by Yatalk. Owners can also enter every item manually. Each dashboard has a locally generated QR code that opens its public shop page. Local SQLite data is stored in `.data/` and is ignored by Git. Voice recordings up to 20 seconds are sent to Google Cloud for transcription. Yatalk does not store recordings; the transcript appears as editable text and must be reviewed before it can be sent as an order. If a required provider is not configured, Yatalk keeps menu browsing and manual cart editing available and clearly disables that provider action. See [the URL and tenant design](docs/yatalk-url-design.md) for routes and prototype limitations.
 
 ## Environment variables
 
@@ -50,7 +50,7 @@ The app seeds fictional Little Harbor Market products on first run. Newly create
 | `GOOGLE_CLOUD_PROJECT` | Google Cloud project used for Vertex AI (default example: `s-yatalk`) |
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI endpoint location (`global` for the selected Flash-Lite model) |
 | `GOOGLE_GENAI_USE_ENTERPRISE` | Selects the Google Cloud Vertex AI backend for the Gen AI SDK |
-| `GEMINI_MODEL` | Vertex AI model for chat and audio transcription (`gemini-3.5-flash-lite`) |
+| `GEMINI_MODEL` | Vertex AI model for menu OCR, chat, and audio transcription (`gemini-3.5-flash-lite`) |
 | `ADMIN_ACCESS_CODE` | Organizer login passphrase (minimum 16 characters) |
 | `ADMIN_SESSION_SECRET` | Random secret used to sign expiring organizer cookies |
 
@@ -68,8 +68,8 @@ npm test
 
 ## Hackathon demo path
 
-1. Ask for “Two yakisoba and one iced tea.”
-2. Review the exact items and server-calculated total, then approve in PayPal Sandbox.
+1. Create a shop, scan its dashboard QR code, and place an order by voice or chat.
+2. Review the recognized request, exact items, and server-calculated total, then approve in PayPal Sandbox.
 3. Show the paid receipt and pickup code.
 4. Sign in as the organizer and show the new order and changed availability.
 5. Ask “What is almost sold out?” and show the database facts beside the AI answer.
@@ -79,8 +79,9 @@ Keep the recorded demo under three minutes. The project is designed for the [Pay
 ## Security notes
 
 - The demo uses PayPal Sandbox only; there is no live-payment mode.
+- Sandbox payments go to the one seller account configured for the app. Shop owners sign in to Yatalk and do not connect PayPal in this demo; per-shop settlement requires a separate PayPal partner integration.
 - Product prices, order totals, payment status, and inventory decisions are server-authoritative.
-- Gemini interprets order text, transcribes short voice recordings, and explains computed summaries. It cannot capture a payment, issue a refund, or edit stock.
+- Gemini suggests menu items from photos, transcribes short voice recordings, interprets order text, and explains computed summaries. Owners review menu suggestions and set stock; buyers review transcripts and cart changes. Gemini cannot capture a payment, issue a refund, or edit stock.
 - Vertex AI usage is billed to the selected Google Cloud project. As of 2026-11-02, Gemini 3.5 Flash-Lite Standard PayGo on the global endpoint is listed at $0.30 per million input tokens and $2.50 per million output tokens; check [current pricing](https://cloud.google.com/model-garden/pricing) before use because rates can change. Terraform declares global input-token quota preferences for `gemini-3.5-flash-lite-qcd` at 10,000 tokens per minute and 50,000 tokens per day; after applying, verify `granted_value` and `reconciling` before relying on the limits. These preferences do not limit output tokens or other project charges. The selected `global` endpoint is not a Tokyo-only processing location. Terraform also sets a ¥5,000 monthly project budget alert at 50%, 80%, 100%, and forecasted 100%; it sends notifications and does not cap spending.
 - Customers are not asked for names, email addresses, or payment details by Yatalk; shop owners provide an email address for account sign-in.
 - Never commit `.env`, cloud credentials, tokens, database files, or Sandbox login credentials.

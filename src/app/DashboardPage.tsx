@@ -6,6 +6,8 @@ import { ApiError, del, get, patch, post } from "../lib/api";
 import { money } from "../lib/format";
 import { BrandHeader } from "../components/BrandHeader";
 import { InventoryCard, OrderCard } from "../components/OrganizerPanels";
+import { MenuSetupCard } from "../components/MenuSetupCard";
+import { ShopQRCodeCard } from "../components/ShopQRCodeCard";
 import { Alert, Loading } from "../components/Feedback";
 
 const prompts = ["What is almost sold out?", "Which item sold most?"];
@@ -181,9 +183,11 @@ export function DashboardPage() {
                   />)}
                 </div>}
               </section>
+              <MenuSetupCard onSaved={loadSummary} />
               <InventoryCard products={summary.products} saving={saving} feedback={productFeedback} onSave={saveProduct} />
             </div>
             <div className="dashboard-column">
+              <ShopQRCodeCard shopSlug={summary.shop?.slug ?? shopSlug ?? "little-harbor-market"} />
               <section className="dashboard-card ai-card" aria-labelledby="ops-heading">
                 <div className="section-heading"><div><p className="eyebrow">Grounded in live sales and stock</p><h2 id="ops-heading"><Sparkles size={20} aria-hidden="true" /> Operations helper</h2><p>Ask a question. Source figures come from the order book.</p></div></div>
                 <div className="ai-prompts">{prompts.map((prompt) => <button key={prompt} type="button" onClick={() => usePrompt(prompt)}>{prompt}</button>)}</div>

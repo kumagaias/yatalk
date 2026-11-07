@@ -63,6 +63,27 @@ export const productPatchSchema = z.object({
   active: z.boolean().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
+export const createProductSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(240),
+  priceMinor: z.number().int().min(1).max(1_000_000),
+  stockOnHand: z.number().int().min(0).max(999),
+  dietaryNote: z.string().trim().max(160),
+}).strict();
+
+export const createProductsRequestSchema = z.object({
+  products: z.array(createProductSchema).min(1).max(30),
+}).strict();
+
+export const menuExtractionSchema = z.object({
+  items: z.array(z.object({
+    name: z.string().trim().min(1).max(80),
+    description: z.string().trim().max(240),
+    priceMinor: z.number().int().min(1).max(1_000_000).nullable(),
+    dietaryNote: z.string().trim().max(160),
+  }).strict()).max(30),
+}).strict();
+
 export const refundRequestSchema = z.object({
   restock: z.boolean(),
 }).strict();
@@ -120,5 +141,7 @@ export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export type CartItemRequest = z.infer<typeof cartItemRequestSchema>;
 export type CreateOrderRequest = z.infer<typeof createOrderRequestSchema>;
 export type ProductPatch = z.infer<typeof productPatchSchema>;
+export type CreateProduct = z.infer<typeof createProductSchema>;
+export type MenuExtraction = z.infer<typeof menuExtractionSchema>;
 export type RefundRequest = z.infer<typeof refundRequestSchema>;
 export type OrganizerQuestionRequest = z.infer<typeof organizerQuestionSchema>;

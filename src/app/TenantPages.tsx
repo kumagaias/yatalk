@@ -18,7 +18,7 @@ export function PlatformHome() {
       <section className="landing-hero">
         <p className="hero-kicker"><span />A voice-first order desk for local shops</p>
         <h1>Open your shop.<br /><span>Let customers order their way.</span></h1>
-        <p className="hero-description">Create a simple storefront with a menu, voice and chat ordering, and PayPal checkout.</p>
+        <p className="hero-description">Create a simple storefront, add your menu by photo or by hand, and share it with a QR code.</p>
         <div className="tenant-actions">
           <Link className="button button-primary" to="/shops/new">Create a shop <ArrowRight size={17} /></Link>
           <Link className="button button-secondary" to="/shops/little-harbor-market">Visit the sample shop <ArrowUpRight size={16} /></Link>
@@ -89,6 +89,7 @@ export function ShopSetupPage({ addAnother = false }: { addAnother?: boolean }) 
         <p className="eyebrow">{addAnother ? "Your owner account" : "Start your storefront"}</p>
         <h1 id="shop-setup-heading">{addAnother ? "Add a shop" : "Create your shop"}</h1>
         <p className="auth-intro">Your public page will be at <strong>yatalk.kumagaias.com/shops/{slug || "your-shop"}</strong>.</p>
+        <p className="auth-intro shop-setup-next-step">After creation, add menu items from a photo or enter them yourself.</p>
         <form onSubmit={(event) => void submit(event)}>
           <div className="form-field"><label htmlFor="shop-name">Shop name</label><input id="shop-name" autoComplete="organization" maxLength={80} required value={name} onChange={(event) => { setName(event.target.value); setError(""); }} /></div>
           <div className="form-field"><label htmlFor="shop-slug">Shop address</label><div className="slug-input"><span>yatalk.kumagaias.com/shops/</span><output id="shop-slug">{slug || "your-shop"}</output></div><p className="form-help">Generated automatically from your shop name.</p>

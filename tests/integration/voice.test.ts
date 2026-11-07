@@ -53,6 +53,7 @@ test("voice route returns a retry message when a valid clip contains no clear sp
     async interpretCart() { return { reply: "", clarification: null, operations: [] }; },
     async explainFacts() { return ""; },
     async transcribeAudio() { return ""; },
+    async extractMenu() { return { items: [] }; },
   };
   await withServer(new FakePayPal(), async (url) => {
     const visitor = await visitorSession(url);

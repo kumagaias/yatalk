@@ -23,7 +23,7 @@ export function MenuSection({ products, loading, busy, mutationBusy, onAdd }: {
         <span className="menu-count">{products.length} market favorites</span>
       </div>
       {loading ? <div className="menu-loading" role="status">Setting out the good stuff…</div> : products.length === 0 ? (
-        <div className="panel empty-menu"><Soup size={26} aria-hidden="true" /><h3>We’re setting up the stall.</h3><p>The menu could not be loaded. Please try again in a moment.</p></div>
+        <div className="panel empty-menu"><Soup size={26} aria-hidden="true" /><h3>We’re setting up the stall.</h3><p>The menu is on its way. Check back soon.</p></div>
       ) : (
         <div className="product-grid">
           {products.map((product, index) => {

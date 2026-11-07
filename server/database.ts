@@ -217,18 +217,6 @@ export function createShopRecord(db: Db, input: { id?: string; slug: string; nam
   db.prepare(`INSERT INTO shops(id, slug, name, time_zone, currency, status, catalog_revision, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'JPY', 'active', 1, ?, ?)`)
     .run(id, input.slug, input.name, input.timeZone ?? "Asia/Tokyo", now, now);
-  const templates = db.prepare(`SELECT name, description, price_minor, currency, stock_on_hand, dietary_note, active
-    FROM products WHERE shop_id = ? ORDER BY id`).all(DEFAULT_SHOP_ID) as Array<{
-      name: string; description: string; price_minor: number; currency: string;
-      stock_on_hand: number; dietary_note: string; active: number;
-    }>;
-  const insert = db.prepare(`INSERT INTO products
-    (id, shop_id, name, description, price_minor, currency, stock_on_hand, dietary_note, active, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  for (const product of templates) {
-    insert.run(randomUUID(), id, product.name, product.description, product.price_minor, product.currency,
-      product.stock_on_hand, product.dietary_note, product.active, now);
-  }
   return getShopById(db, id)!;
 }
 

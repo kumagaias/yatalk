@@ -60,6 +60,26 @@ test("Gemini accepts bounded Ogg/Opus audio", async () => {
   assert.equal(contents[0]?.parts?.[1]?.inlineData?.mimeType, "audio/ogg");
 });
 
+test("Gemini reads menu photos into editable suggestions without guessing unlisted prices", async () => {
+  let captured: Parameters<GeminiModelCall>[0] | undefined;
+  const provider = new GeminiVertex(config, async (request) => {
+    captured = request;
+    return JSON.stringify({ items: [{ name: "Green tea", description: "Cold-brew tea", priceMinor: null, dietaryNote: "" }] });
+  });
+  const result = await provider.extractMenu(Buffer.from([0xff, 0xd8, 0xff]), "image/jpeg");
+  assert.equal(result.items[0]?.priceMinor, null);
+  const contents = captured?.contents as Array<{ parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> }>;
+  assert.equal(contents[0]?.parts?.[1]?.inlineData?.mimeType, "image/jpeg");
+  assert.equal(contents[0]?.parts?.[1]?.inlineData?.data, Buffer.from([0xff, 0xd8, 0xff]).toString("base64"));
+  assert.ok(captured?.config?.responseJsonSchema);
+});
+
+test("Gemini rejects malformed menu extraction output", async () => {
+  const provider = new GeminiVertex(config, async () => JSON.stringify({ items: [{ name: "Tea", priceMinor: 300, guessedStock: 20 }] }));
+  await assert.rejects(provider.extractMenu(Buffer.from([0xff, 0xd8, 0xff]), "image/jpeg"),
+    (error: unknown) => error instanceof ProviderError && error.provider === "gemini");
+});
+
 test("Gemini rejects invalid structured output and unsupported audio", async () => {
   const provider = new GeminiVertex(config, async () => "not json");
   await assert.rejects(provider.explainFacts("Question?", {}), (error: unknown) => error instanceof ProviderError && error.provider === "gemini");

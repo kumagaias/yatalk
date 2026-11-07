@@ -58,7 +58,8 @@ export function createApp(options: CreateAppOptions): express.Express {
   app.use("/api/v1/webhooks", webhookRoutes(db, config, paypal));
   app.use(express.json({ limit: "32kb", type: "application/json", strict: true }));
   app.use((request, response, next) => {
-    if (request.path === "/api/voice/transcribe" || /^\/api\/v1\/shops\/[^/]+\/voice\/transcribe$/.test(request.path)) { next(); return; }
+    if (request.path === "/api/voice/transcribe" || /^\/api\/v1\/shops\/[^/]+\/voice\/transcribe$/.test(request.path) ||
+        request.path === "/api/organizer/menu/scan" || /^\/api\/v1\/dashboard\/shops\/[^/]+\/menu\/scan$/.test(request.path)) { next(); return; }
     express.raw({ type: () => true, limit: "32kb" })(request, response, next);
   });
   app.get("/api/health", (_request, response) => response.json({ ok: true }));
