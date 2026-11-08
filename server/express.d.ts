@@ -8,6 +8,9 @@ declare global {
       visitorSession?: VisitorSession;
       shop?: Shop;
       ownerUserId?: string;
+      ownerSlug?: string;
+      ownerDisplayName?: string;
+      ownerCurrency?: import("../shared/currency.js").CurrencyCode;
       shopRole?: "owner" | "staff";
       isOrganizer?: boolean;
     }

@@ -32,6 +32,7 @@ export function eventDayBounds(now: Date, timeZone: string): { start: string; en
 export function organizerFacts(db: Db, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID) {
   const bounds = eventDayBounds(now, timeZone);
   const localDay = wallClockParts(now, timeZone);
+  const shop = db.prepare("SELECT currency FROM shops WHERE id = ?").get(shopId) as { currency: string };
   const metrics = db.prepare(`SELECT
       COALESCE(SUM(total_minor), 0) AS gross_captured_minor,
       COALESCE(SUM(CASE WHEN state <> 'refunded' THEN total_minor ELSE 0 END), 0) AS net_captured_minor,
@@ -51,7 +52,7 @@ export function organizerFacts(db: Db, timeZone: string, now = new Date(), shopI
     GROUP BY oi.product_id, oi.display_name ORDER BY units_sold DESC, name COLLATE NOCASE`).all(shopId, shopId, bounds.start, bounds.end) as Array<{ id: string; name: string; units_sold: number }>;
   const lowStock = products.filter((product) => product.available <= 5);
   return {
-    date: `${localDay.year}-${String(localDay.month).padStart(2, "0")}-${String(localDay.day).padStart(2, "0")}`, timeZone,
+    date: `${localDay.year}-${String(localDay.month).padStart(2, "0")}-${String(localDay.day).padStart(2, "0")}`, timeZone, currency: shop.currency,
     grossCapturedMinor: metrics.gross_captured_minor,
     netCapturedMinor: metrics.net_captured_minor,
     netOrderCount: metrics.net_order_count ?? 0,

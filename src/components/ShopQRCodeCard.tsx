@@ -2,10 +2,11 @@ import { Check, Copy, QrCode } from "lucide-react";
 import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
-export function ShopQRCodeCard({ shopSlug }: { shopSlug: string }) {
+export function ShopQRCodeCard({ shopSlug, ownerSlug }: { shopSlug: string; ownerSlug?: string | null }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
-  const shopUrl = new URL(`/shops/${encodeURIComponent(shopSlug)}`, window.location.origin).toString();
+  const shopPath = ownerSlug ? `/${encodeURIComponent(ownerSlug)}/${encodeURIComponent(shopSlug)}` : `/shops/${encodeURIComponent(shopSlug)}`;
+  const shopUrl = new URL(shopPath, window.location.origin).toString();
 
   const copyLink = async () => {
     setCopyError("");

@@ -72,7 +72,7 @@ export type OrganizerProduct = Product & {
 };
 
 export type OrganizerSummary = {
-  shop?: { slug: string; name: string; status: "active" | "inactive" };
+  shop?: { slug: string; ownerSlug?: string | null; name: string; currency?: string; status: "active" | "inactive" };
   metrics: {
     grossSalesMinor: number;
     netSalesMinor: number;

@@ -3,11 +3,12 @@ import type { Db } from "./database.js";
 import { DEFAULT_SHOP_ID, incrementCatalogRevision } from "./database.js";
 import { ApiError } from "./errors.js";
 import { readCart } from "./inventory.js";
+import type { CurrencyCode } from "../shared/currency.js";
 
 export type OrderState = "creating_payment" | "create_unknown" | "create_failed" | "pending_payment" | "capture_unknown" | "paid" | "cancelled" | "expired" | "collected" | "refund_unknown" | "refunded";
 export interface OrderRow {
   id: string; shop_id: string; session_hash: string; client_request_key: string; request_fingerprint: string;
-  cart_version: number; catalog_revision: number; state: OrderState; currency: "JPY";
+  cart_version: number; catalog_revision: number; state: OrderState; currency: CurrencyCode;
   total_minor: number; paypal_create_request_id: string; paypal_capture_request_id: string;
   paypal_refund_request_id: string; paypal_order_id: string | null; paypal_capture_id: string | null;
   paypal_refund_id: string | null; pickup_code: string | null; expires_at: string;
@@ -65,9 +66,9 @@ export function reserveOrder(db: Db, input: ReservationInput): ReservedOrder {
     db.prepare(`INSERT INTO orders(id, shop_id, session_hash, client_request_key, request_fingerprint, cart_version, catalog_revision,
       state, currency, total_minor, paypal_create_request_id, paypal_capture_request_id, paypal_refund_request_id,
       expires_at, create_attempt_started_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'creating_payment', 'JPY', ?, ?, ?, ?, ?, ?, ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'creating_payment', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, shopId, input.sessionHash, input.clientRequestKey, fingerprint, input.cartVersion, input.catalogRevision,
-        cart.totalMinor, randomUUID(), randomUUID(), randomUUID(), expiresAt, now, now, now);
+        cart.currency, cart.totalMinor, randomUUID(), randomUUID(), randomUUID(), expiresAt, now, now, now);
     const insertLine = db.prepare(`INSERT INTO order_items(order_id, shop_id, product_id, display_name, unit_price_minor, quantity)
       VALUES (?, ?, ?, ?, ?, ?)`);
     for (const item of cart.items) insertLine.run(id, shopId, item.id, item.name, item.priceMinor, item.quantity);

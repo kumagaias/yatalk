@@ -3,13 +3,14 @@ import type { Db } from "./database.js";
 import { ApiError } from "./errors.js";
 import { DEFAULT_SHOP_ID, getCatalogRevision, incrementCatalogRevision } from "./database.js";
 import type { CartOperation, CreateProduct, ProductPatch } from "../shared/schemas.js";
+import type { CurrencyCode } from "../shared/currency.js";
 
 export type Product = {
   id: string;
   name: string;
   description: string;
   priceMinor: number;
-  currency: "JPY";
+  currency: CurrencyCode;
   stockOnHand: number;
   reserved: number;
   available: number;
@@ -18,7 +19,7 @@ export type Product = {
 };
 
 type ProductRow = {
-  id: string; name: string; description: string; price_minor: number; currency: "JPY";
+  id: string; name: string; description: string; price_minor: number; currency: CurrencyCode;
   stock_on_hand: number; dietary_note: string; active: number;
 };
 
@@ -41,7 +42,7 @@ export function listProducts(db: Db, shopOrActive: string | boolean = DEFAULT_SH
     const reserved = reservedForProduct(db, row.id, shopId);
     return {
       id: row.id, name: row.name, description: row.description,
-      priceMinor: row.price_minor, currency: "JPY", stockOnHand: row.stock_on_hand,
+      priceMinor: row.price_minor, currency: row.currency, stockOnHand: row.stock_on_hand,
       reserved, available: Math.max(0, row.stock_on_hand - reserved),
       dietaryNote: row.dietary_note, active: row.active === 1,
     };
@@ -54,7 +55,7 @@ export function getProduct(db: Db, productId: string, shopId = DEFAULT_SHOP_ID):
   const reserved = reservedForProduct(db, row.id, shopId);
   return {
     id: row.id, name: row.name, description: row.description, priceMinor: row.price_minor,
-    currency: "JPY", stockOnHand: row.stock_on_hand, reserved,
+    currency: row.currency, stockOnHand: row.stock_on_hand, reserved,
     available: Math.max(0, row.stock_on_hand - reserved), dietaryNote: row.dietary_note,
     active: row.active === 1,
   };
@@ -62,17 +63,18 @@ export function getProduct(db: Db, productId: string, shopId = DEFAULT_SHOP_ID):
 
 export function createProducts(db: Db, inputs: CreateProduct[], shopId = DEFAULT_SHOP_ID): Product[] {
   const transaction = db.transaction(() => {
-    const row = db.prepare("SELECT COUNT(*) AS count FROM products WHERE shop_id = ? AND active = 1").get(shopId) as { count: number };
+    const row = db.prepare(`SELECT COUNT(products.id) AS count, shops.currency FROM shops
+      LEFT JOIN products ON products.shop_id = shops.id AND products.active = 1 WHERE shops.id = ?`).get(shopId) as { count: number; currency: CurrencyCode };
     if (row.count + inputs.length > 30) {
       throw new ApiError(409, "menu_item_limit", "A shop can have up to 30 active menu items.");
     }
     const now = new Date().toISOString();
     const insert = db.prepare(`INSERT INTO products
       (id, shop_id, name, description, price_minor, currency, stock_on_hand, dietary_note, active, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'JPY', ?, ?, 1, ?)`);
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`);
     const ids = inputs.map(() => randomUUID());
     inputs.forEach((product, index) => insert.run(ids[index], shopId, product.name, product.description,
-      product.priceMinor, product.stockOnHand, product.dietaryNote, now));
+      product.priceMinor, row.currency, product.stockOnHand, product.dietaryNote, now));
     incrementCatalogRevision(db, shopId);
     return ids.map((id) => getProduct(db, id, shopId)!);
   });
@@ -88,7 +90,7 @@ export interface CartItem extends Product { quantity: number; lineTotalMinor: nu
 export interface Cart {
   items: CartItem[];
   totalMinor: number;
-  currency: "JPY";
+  currency: CurrencyCode;
   cartVersion: number;
   catalogRevision: number;
 }
@@ -101,14 +103,15 @@ export function readCart(db: Db, sessionHash: string, shopId = DEFAULT_SHOP_ID):
     const reserved = reservedForProduct(db, row.id, shopId);
     return {
       id: row.id, name: row.name, description: row.description, priceMinor: row.price_minor,
-      currency: "JPY", stockOnHand: row.stock_on_hand, reserved,
+      currency: row.currency, stockOnHand: row.stock_on_hand, reserved,
       available: Math.max(0, row.stock_on_hand - reserved), dietaryNote: row.dietary_note,
       active: row.active === 1, quantity: row.quantity, lineTotalMinor: row.price_minor * row.quantity,
     };
   });
   const session = db.prepare("SELECT cart_version FROM visitor_sessions WHERE session_hash = ? AND shop_id = ?")
     .get(sessionHash, shopId) as { cart_version: number };
-  return { items, totalMinor: items.reduce((sum, item) => sum + item.lineTotalMinor, 0), currency: "JPY", cartVersion: session.cart_version, catalogRevision: getCatalogRevision(db, shopId) };
+  const shop = db.prepare("SELECT currency FROM shops WHERE id = ?").get(shopId) as { currency: CurrencyCode };
+  return { items, totalMinor: items.reduce((sum, item) => sum + item.lineTotalMinor, 0), currency: shop.currency, cartVersion: session.cart_version, catalogRevision: getCatalogRevision(db, shopId) };
 }
 
 export function ensureVersions(db: Db, sessionHash: string, cartVersion: number, catalogRevision: number, shopId = DEFAULT_SHOP_ID): void {

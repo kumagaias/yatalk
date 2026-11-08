@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "../database.js";
 import { ApiError, ProviderError } from "../errors.js";
+import { parseAmountToMinor } from "../../shared/currency.js";
 import { DEFAULT_SHOP_ID, getCatalogRevision, incrementCatalogRevision } from "../database.js";
 import { readCart } from "../inventory.js";
 import { logStage } from "../logging.js";
@@ -251,7 +252,7 @@ export async function processPaypalWebhook(db: Db, paypal: PayPalProvider, heade
         const captureId = typeof resource.id === "string" ? resource.id : "";
         const amount = nested(resource.amount);
         if (resource.status !== "COMPLETED" || !captureId || amount.currency_code !== order.currency ||
-            Number(amount.value) !== order.total_minor) {
+            typeof amount.value !== "string" || parseAmountToMinor(amount.value, order.currency) !== order.total_minor) {
           throw new ApiError(500, "webhook_reconciliation_failed", "Verified event did not match its local order.");
         }
         if (order.state === "pending_payment" || order.state === "capture_unknown") {
@@ -282,7 +283,7 @@ export async function processPaypalWebhook(db: Db, paypal: PayPalProvider, heade
         const amount = nested(resource.amount);
         if (order.state !== "refund_unknown" || !captureId || order.paypal_capture_id !== captureId ||
             (localOrderId && order.id !== localOrderId) || resource.status !== "COMPLETED" ||
-            amount.currency_code !== order.currency || Number(amount.value) !== order.total_minor ||
+            amount.currency_code !== order.currency || typeof amount.value !== "string" || parseAmountToMinor(amount.value, order.currency) !== order.total_minor ||
             typeof resource.id !== "string" || !resource.id) {
           throw new ApiError(500, "webhook_reconciliation_failed", "Verified event did not match its local refund.");
         }

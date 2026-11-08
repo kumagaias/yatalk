@@ -4,6 +4,7 @@ import { App } from "./app/App";
 import "./styles/tokens.css";
 import "./styles/global.css";
 import "./styles/responsive.css";
+import "./styles/owner-assistant.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

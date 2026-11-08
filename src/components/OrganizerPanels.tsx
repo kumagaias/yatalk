@@ -1,6 +1,7 @@
 import { Check, PackageCheck, RotateCcw } from "lucide-react";
 import type { FormEvent } from "react";
 import type { OrganizerProduct, Order } from "../types";
+import { amountFromMinor } from "../../shared/currency.js";
 import { money, shortTime } from "../lib/format";
 import { Alert } from "./Feedback";
 
@@ -82,7 +83,7 @@ export function InventoryCard({ products, saving, feedback, onSave }: {
                 <form className="inventory-edit-form" onSubmit={(event) => onSave(event, product)}>
                   <div className="inventory-edit">
                     <label className="sr-only" htmlFor={`price-${product.id}`}>Price for {product.name} in {product.currency}</label>
-                    <input id={`price-${product.id}`} name="priceMinor" type="number" inputMode="numeric" min={1} max={1000000} step={1} defaultValue={product.priceMinor} required />
+                    <input id={`price-${product.id}`} name="price" type="number" inputMode="decimal" min={product.currency === "JPY" ? 1 : 0.01} max={amountFromMinor(1000000, product.currency)} step={product.currency === "JPY" ? 1 : 0.01} defaultValue={amountFromMinor(product.priceMinor, product.currency)} required />
                     <span className="input-separator" aria-hidden="true">·</span>
                     <label className="sr-only" htmlFor={`stock-${product.id}`}>Physical stock count for {product.name}</label>
                     <input id={`stock-${product.id}`} name="stockOnHand" type="number" inputMode="numeric" min={product.reserved} max={999} step={1} defaultValue={product.stockOnHand} required />

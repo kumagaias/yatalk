@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isValidShopSlug, shopSlugFromName } from "../../src/lib/shop-slug.js";
+import { isValidOwnerSlug, isValidShopSlug, ownerSlugFromName, shopSlugFromName } from "../../src/lib/shop-slug.js";
 
 test("shop names produce normalized URL slugs", () => {
   assert.equal(shopSlugFromName(""), "");
@@ -15,4 +15,11 @@ test("slug validation follows the public shop address rules", () => {
   assert.equal(isValidShopSlug("new"), false);
   assert.equal(isValidShopSlug("two--hyphens"), false);
   assert.equal(isValidShopSlug("ab"), false);
+});
+
+test("owner addresses normalize names and keep reserved routes unavailable", () => {
+  assert.equal(ownerSlugFromName("Little Harbor"), "little-harbor");
+  assert.equal(ownerSlugFromName("東京の店"), "my-owner");
+  assert.equal(isValidOwnerSlug("little-harbor"), true);
+  assert.equal(isValidOwnerSlug("dashboard"), false);
 });

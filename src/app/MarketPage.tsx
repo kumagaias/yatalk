@@ -13,11 +13,11 @@ import { Loading } from "../components/Feedback";
 type ChatHistoryItem = { role: "user" | "assistant"; content: string };
 
 export function MarketPage() {
-  const { shopSlug } = useParams();
-  return <ShopMarketPage key={shopSlug} shopSlug={shopSlug} />;
+  const { ownerSlug, shopSlug } = useParams();
+  return <ShopMarketPage key={`${ownerSlug ?? "legacy"}/${shopSlug ?? "default"}`} shopSlug={shopSlug} ownerSlug={ownerSlug} />;
 }
 
-function ShopMarketPage({ shopSlug }: { shopSlug?: string }) {
+function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?: string }) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [cart, setCart] = useState<Cart | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -149,6 +149,9 @@ function ShopMarketPage({ shopSlug }: { shopSlug?: string }) {
     void refreshCartAndMenu();
   };
   const currentName = config?.eventName || eventName;
+  const dashboardUrl = ownerSlug && shopSlug
+    ? `/dashboard/${encodeURIComponent(ownerSlug)}/${encodeURIComponent(shopSlug)}`
+    : shopSlug ? `/dashboard/shops/${encodeURIComponent(shopSlug)}` : "/dashboard/login";
 
   return (
     <div className="market-page">
@@ -182,7 +185,7 @@ function ShopMarketPage({ shopSlug }: { shopSlug?: string }) {
             />
           </aside>
         </div>
-        <footer className="market-footer"><span>{currentName} · Tokyo</span><Link to={shopSlug ? `/dashboard/shops/${encodeURIComponent(shopSlug)}` : "/dashboard/login"}>For the people behind the stall <ArrowUpRight size={14} aria-hidden="true" /></Link><span>Order with care. Pick up with a smile.</span></footer>
+        <footer className="market-footer"><span>{currentName}</span><Link to={dashboardUrl}>For the people behind the stall <ArrowUpRight size={14} aria-hidden="true" /></Link><span>Order with care. Pick up with a smile.</span></footer>
       </main>
     </div>
   );

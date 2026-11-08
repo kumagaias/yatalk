@@ -5,21 +5,26 @@ import { FakePayPal, json, origin, postHeaders, withServer } from "./support.js"
 
 type ShopCreated = { shop: { slug: string; name: string }; dashboardUrl: string };
 
-async function createOwner(url: string, slug: string, email: string, password = "a-test-password-123") {
-  const { response, body } = await json(`${url}/api/v1/shops`, {
+async function createOwner(url: string, slug: string, email: string, password = "a-test-password-123", defaultCurrency = "JPY") {
+  const ownerSlug = `owner-${Math.random().toString(36).slice(2, 10)}`;
+  const registration = await json(`${url}/api/v1/owners`, {
     method: "POST", headers: { origin, "content-type": "application/json" },
-    body: JSON.stringify({ name: `Shop ${slug}`, slug, email, password }),
+    body: JSON.stringify({ displayName: `Owner ${slug}`, ownerSlug, email, password, defaultCurrency }),
   });
-  assert.equal(response.status, 201);
-  const cookie = response.headers.get("set-cookie")?.split(";")[0];
+  assert.equal(registration.response.status, 201);
+  const cookie = registration.response.headers.get("set-cookie")?.split(";")[0];
   if (!cookie?.startsWith("yatalk_owner=")) throw new Error("Owner session cookie was not issued");
-  return { cookie, shop: (body as ShopCreated).shop };
+  const created = await json(`${url}/api/v1/dashboard/shops`, {
+    method: "POST", headers: postHeaders(cookie), body: JSON.stringify({ name: `Shop ${slug}`, slug }),
+  });
+  assert.equal(created.response.status, 201);
+  return { cookie, ownerSlug, shop: (created.body as ShopCreated).shop };
 }
 
 async function visitor(url: string, slug: string) {
   const { response, body } = await json(`${url}/api/v1/shops/${slug}/cart`);
   const cookie = response.headers.get("set-cookie")?.split(";")[0];
-  if (!cookie?.startsWith(`yatalk_v_${slug}=`)) throw new Error("Shop visitor cookie was not issued");
+  if (!cookie?.startsWith("yatalk_v_") && !cookie?.startsWith("yatalk_visitor=")) throw new Error("Shop visitor cookie was not issued");
   return { cookie, cart: body };
 }
 
@@ -118,6 +123,24 @@ test("shop owners can manage only their own orders, inventory, and summaries", a
   });
 });
 
+test("menu assistant requires shop ownership and returns editable drafts without publishing them", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const owner = await createOwner(url, `shop-menu-ai-${suffix}`, `menu-ai-${suffix}@example.test`);
+    const endpoint = `${url}/api/v1/dashboard/${owner.ownerSlug}/${owner.shop.slug}/menu/assistant`;
+    const body = { message: "Suggest a citrus tea", history: [], draft: [] };
+    const unauthorized = await json(endpoint, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert.equal(unauthorized.response.status, 401);
+    const suggested = await json(endpoint, { method: "POST", headers: postHeaders(owner.cookie), body: JSON.stringify(body) });
+    assert.equal(suggested.response.status, 200);
+    assert.equal(suggested.body.suggestions[0].name, "Citrus tea");
+    assert.equal(suggested.body.suggestions[0].priceMinor, null);
+    assert.equal("stockOnHand" in suggested.body.suggestions[0], false);
+    const menu = await json(`${url}/api/v1/owners/${owner.ownerSlug}/shops/${owner.shop.slug}/menu`);
+    assert.deepEqual(menu.body.products, []);
+  });
+});
+
 test("shop menu photo extraction requires the owner, checks image content, and saves only reviewed menu items", async () => {
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);
@@ -181,9 +204,9 @@ test("shop slug availability reports reserved and existing addresses", async () 
     assert.equal(taken.response.status, 200);
     assert.deepEqual(taken.body, { available: false });
 
-    const duplicate = await json(`${url}/api/v1/shops`, {
-      method: "POST", headers: { origin, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Duplicate", slug, email: `duplicate-${slug}@example.test`, password: "a-test-password-123" }),
+    const duplicate = await json(`${url}/api/v1/dashboard/shops`, {
+      method: "POST", headers: postHeaders(created.cookie),
+      body: JSON.stringify({ name: "Duplicate", slug }),
     });
     assert.equal(duplicate.response.status, 409);
     assert.equal(duplicate.body.error.code, "shop_slug_taken");
@@ -222,9 +245,10 @@ test("owner sign-in, session revocation, reserved slugs, and webhook alias behav
     const afterLogout = await json(`${url}/api/v1/dashboard/shops`, { headers: { cookie: ownerCookie } });
     assert.equal(afterLogout.response.status, 401);
 
-    const reserved = await json(`${url}/api/v1/shops`, {
-      method: "POST", headers: { origin, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Reserved", slug: "new", email: `reserved-${suffix}@example.test`, password }),
+    const owner = await createOwner(url, `shop-reserved-${suffix}`, `reserved-${suffix}@example.test`, password);
+    const reserved = await json(`${url}/api/v1/dashboard/shops`, {
+      method: "POST", headers: postHeaders(owner.cookie),
+      body: JSON.stringify({ name: "Reserved", slug: "new" }),
     });
     assert.equal(reserved.response.status, 400);
 

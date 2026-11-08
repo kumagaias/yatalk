@@ -11,7 +11,7 @@ import { logStage } from "../logging.js";
 import { adminOrder, audit, collectOrder, refundOrder } from "../services/orders.js";
 import type { AiProvider } from "../services/ai.js";
 import type { PayPalProvider } from "../services/paypal.js";
-import { createProductsRequestSchema, menuExtractionSchema, organizerQuestionSchema, productPatchSchema, refundRequestSchema } from "../../shared/schemas.js";
+import { createProductsRequestSchema, menuAssistantRequestSchema, menuAssistantResponseSchema, menuExtractionSchema, organizerQuestionSchema, productPatchSchema, refundRequestSchema } from "../../shared/schemas.js";
 import { detectMenuImageMimeType, MAX_MENU_IMAGE_BYTES, MENU_IMAGE_MIME_TYPES, type MenuImageMimeType } from "../menu-image.js";
 
 const menuScansInFlight = new Set<string>();
@@ -23,6 +23,7 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
   const askLimit = createRateLimit(10, 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
   const mutationLimit = createRateLimit(30, 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
   const menuScanLimit = createRateLimit(4, 15 * 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
+  const menuAssistantLimit = createRateLimit(12, 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
   const parseMenuImage = express.raw({
     type: (request) => MENU_IMAGE_MIME_TYPES.includes((request.headers["content-type"] ?? "").split(";", 1)[0]!.trim().toLowerCase() as MenuImageMimeType),
     limit: MAX_MENU_IMAGE_BYTES,
@@ -30,7 +31,7 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
 
   router.get("/summary", (request, response) => {
     const shopId = shopIdOf(request);
-    response.json({ shop: request.shop ? { slug: request.shop.slug, name: request.shop.name, status: request.shop.status } : undefined,
+    response.json({ shop: request.shop ? { slug: request.shop.slug, ownerSlug: request.shop.ownerSlug, name: request.shop.name, currency: request.shop.currency, status: request.shop.status } : undefined,
       ...organizerSummary(db, request.shop?.timeZone ?? config.eventTimeZone, shopId) });
   });
 
@@ -60,7 +61,7 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
     menuScansInFlight.add(actorId);
     logStage(request.requestId, "gemini_menu_extraction", "start");
     try {
-      const result = menuExtractionSchema.parse(await ai.extractMenu(request.body, mimeType as MenuImageMimeType));
+      const result = menuExtractionSchema.parse(await ai.extractMenu(request.body, mimeType as MenuImageMimeType, request.shop?.currency ?? config.currency));
       logStage(request.requestId, "gemini_menu_extraction", "success");
       response.json(result);
     } catch (error) {
@@ -130,6 +131,21 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
     } catch (error) {
       logStage(request.requestId, "gemini_organizer_answer", "failure", error);
       throw new ApiError(503, "assistant_unavailable", "The assistant is unavailable. The dashboard remains available.");
+    }
+  });
+
+  router.post("/menu/assistant", originOnly, menuAssistantLimit, async (request, response) => {
+    requireJson(request);
+    const input = parseBody(menuAssistantRequestSchema, request);
+    const currency = request.shop?.currency ?? config.currency;
+    logStage(request.requestId, "gemini_menu_assistant", "start");
+    try {
+      const result = menuAssistantResponseSchema.parse(await ai.assistMenu({ ...input, currency }));
+      logStage(request.requestId, "gemini_menu_assistant", "success");
+      response.json(result);
+    } catch (error) {
+      logStage(request.requestId, "gemini_menu_assistant", "failure", error);
+      throw new ApiError(503, "menu_assistant_unavailable", "The menu assistant is unavailable. Your draft is unchanged.");
     }
   });
 

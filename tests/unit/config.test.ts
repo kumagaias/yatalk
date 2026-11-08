@@ -13,7 +13,7 @@ test("runtime configuration fixes the demo to PayPal sandbox and JPY", () => {
   assert.throws(() => loadConfig({ ...base, GOOGLE_CLOUD_PROJECT: "bad/project" }), /GOOGLE_CLOUD_PROJECT is invalid/);
   assert.equal(loadConfig({ ...base, GOOGLE_CLOUD_PROJECT: "s-yatalk", GOOGLE_CLOUD_LOCATION: "global" }).googleCloudProject, "s-yatalk");
   assert.throws(() => loadConfig({ ...base, PAYPAL_MODE: "live" }), /PAYPAL_MODE must be sandbox/);
-  assert.throws(() => loadConfig({ ...base, PAYPAL_CURRENCY: "USD" }), /PAYPAL_CURRENCY must be JPY/);
+  assert.equal(loadConfig({ ...base, PAYPAL_CURRENCY: "USD" }).currency, "JPY");
   assert.throws(() => loadConfig({ ...base, ADMIN_SESSION_SECRET: "too-short" }), /at least 32 bytes/);
   assert.throws(() => loadConfig({ ...base, ADMIN_ACCESS_CODE: "weak-code" }), /at least 16 characters/);
   assert.throws(() => loadConfig({ ...base, ADMIN_ACCESS_CODE: "x".repeat(129) }), /no more than 128 characters/);

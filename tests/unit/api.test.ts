@@ -8,6 +8,14 @@ test("shop pages scope existing customer API calls to the path tenant", () => {
     "/api/v1/shops/omise-example/orders/order-1/capture");
 });
 
+test("owner storefronts scope buyer and dashboard API calls by both path segments", () => {
+  assert.equal(resolveApiPath("/api/menu", "/kumagai/corner-shop"), "/api/v1/owners/kumagai/shops/corner-shop/menu");
+  assert.equal(resolveApiPath("/api/orders/order-2/capture", "/kumagai/corner-shop/orders/order-2"),
+    "/api/v1/owners/kumagai/shops/corner-shop/orders/order-2/capture");
+  assert.equal(resolveApiPath("/api/organizer/summary", "/dashboard/kumagai/corner-shop"),
+    "/api/v1/dashboard/kumagai/corner-shop/summary");
+});
+
 test("shop dashboards scope organizer operations to their shop", () => {
   assert.equal(resolveApiPath("/api/organizer/summary", "/dashboard/shops/omise-example"),
     "/api/v1/dashboard/shops/omise-example/summary");

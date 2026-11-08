@@ -1,5 +1,6 @@
 import type { AppConfig } from "../config.js";
 import { ProviderError } from "../errors.js";
+import { minorToProviderAmount, parseAmountToMinor } from "../../shared/currency.js";
 
 export interface PayPalLineItem { id: string; name: string; quantity: number; unitAmount: number }
 export interface PayPalOrderInput { localOrderId: string; currency: string; totalMinor: number; items: PayPalLineItem[]; requestId: string }
@@ -32,8 +33,8 @@ function string(value: unknown): string | null { return typeof value === "string
 function parseAmount(value: unknown): { currency: string | null; minor: number | null } {
   const amount = record(value);
   const currency = string(amount.currency_code);
-  const parsed = typeof amount.value === "string" && /^\d+(?:\.\d{1,2})?$/.test(amount.value) ? Number(amount.value) : NaN;
-  return { currency, minor: Number.isSafeInteger(parsed) ? parsed : null };
+  const parsed = typeof amount.value === "string" && currency ? parseAmountToMinor(amount.value, currency) : null;
+  return { currency, minor: parsed };
 }
 
 function firstPurchaseUnit(body: unknown): JsonRecord {
@@ -109,7 +110,7 @@ export class PayPalClient implements PayPalProvider {
   }
 
   async createOrder(input: PayPalOrderInput): Promise<PayPalOrderResult> {
-    const toValue = (minor: number) => minor.toString();
+    const toValue = (minor: number) => minorToProviderAmount(minor, input.currency);
     const payload = await this.request("/v2/checkout/orders", "POST", {
       intent: "CAPTURE",
       purchase_units: [{
@@ -141,7 +142,7 @@ export class PayPalClient implements PayPalProvider {
 
   async refundCapture(captureId: string, amountMinor: number, currency: string, requestId: string): Promise<PayPalRefundResult> {
     const payload = await this.request(`/v2/payments/captures/${encodeURIComponent(captureId)}/refund`, "POST", {
-      amount: { currency_code: currency, value: amountMinor.toString() },
+      amount: { currency_code: currency, value: minorToProviderAmount(amountMinor, currency) },
     }, requestId);
     const amount = parseAmount(payload.amount);
     return { refundId: string(payload.id), status: string(payload.status) ?? "UNKNOWN", currency: amount.currency, amountMinor: amount.minor };

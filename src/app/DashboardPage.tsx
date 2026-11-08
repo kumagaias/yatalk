@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowUpRight, CircleHelp, LogOut, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, CircleHelp, LogOut, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { OrganizerProduct, OrganizerSummary, Order } from "../types";
@@ -9,9 +9,9 @@ import { InventoryCard, OrderCard } from "../components/OrganizerPanels";
 import { MenuSetupCard } from "../components/MenuSetupCard";
 import { ShopQRCodeCard } from "../components/ShopQRCodeCard";
 import { Alert, Loading } from "../components/Feedback";
-
-const prompts = ["What is almost sold out?", "Which item sold most?"];
-type AskResult = { answer: string; sourceFacts: Record<string, unknown> };
+import { OwnerAssistantPanel } from "../components/OwnerAssistantPanel";
+import type { MenuExtraction } from "../../shared/schemas.js";
+import { parseAmountToMinor } from "../../shared/currency.js";
 
 export function DashboardPage() {
   const [summary, setSummary] = useState<OrganizerSummary | null>(null);
@@ -25,15 +25,18 @@ export function DashboardPage() {
   const [refundUnknown, setRefundUnknown] = useState<Record<string, boolean>>({});
   const [refundDetailLoading, setRefundDetailLoading] = useState<Record<string, boolean>>({});
   const [refundDetailError, setRefundDetailError] = useState<Record<string, string>>({});
-  const [question, setQuestion] = useState("");
-  const [askResult, setAskResult] = useState<AskResult | null>(null);
-  const [askError, setAskError] = useState("");
-  const [asking, setAsking] = useState(false);
+  const [assistantSuggestions, setAssistantSuggestions] = useState<MenuExtraction["items"] | null>(null);
+  const [menuDraftContext, setMenuDraftContext] = useState<MenuExtraction["items"]>([]);
   const [signingOut, setSigningOut] = useState(false);
   const navigate = useNavigate();
-  const { shopSlug } = useParams();
-  const shopUrl = shopSlug ? `/shops/${encodeURIComponent(shopSlug)}` : "/shops/little-harbor-market";
+  const { ownerSlug, shopSlug } = useParams();
+  const publicOwnerSlug = summary?.shop?.ownerSlug ?? ownerSlug;
+  const shopUrl = shopSlug ? publicOwnerSlug ? `/${encodeURIComponent(publicOwnerSlug)}/${encodeURIComponent(shopSlug)}` : `/shops/${encodeURIComponent(shopSlug)}` : "/shops/little-harbor-market";
   const shopName = summary?.shop?.name ?? "Little Harbor Market";
+  const currency = summary?.shop?.currency ?? "JPY";
+
+  const clearAssistantSuggestions = useCallback(() => setAssistantSuggestions(null), []);
+  const updateMenuDraftContext = useCallback((items: MenuExtraction["items"]) => setMenuDraftContext(items), []);
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
@@ -68,10 +71,11 @@ export function DashboardPage() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const stockOnHand = Number(formData.get("stockOnHand"));
-    const priceMinor = Number(formData.get("priceMinor"));
+    const priceMinor = parseAmountToMinor(String(formData.get("price") ?? ""), product.currency);
     setSaving(product.id);
     setProductFeedback((value) => ({ ...value, [product.id]: "" }));
     try {
+      if (priceMinor === null) throw new Error(`Enter a valid ${product.currency} amount.`);
       await patch(`/api/organizer/products/${encodeURIComponent(product.id)}`, { stockOnHand, priceMinor });
       setProductFeedback((value) => ({ ...value, [product.id]: "Saved" }));
       await loadSummary();
@@ -135,20 +139,6 @@ export function DashboardPage() {
     } finally { setSaving(null); }
   };
 
-  const ask = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!question.trim() || asking) return;
-    setAsking(true);
-    setAskError("");
-    try {
-      setAskResult(await post<AskResult>("/api/organizer/ask", { question: question.trim() }));
-    } catch (error) {
-      setAskError(error instanceof Error ? error.message : "The assistant could not answer. The order desk is still available.");
-    } finally { setAsking(false); }
-  };
-
-  const usePrompt = (value: string) => { setQuestion(value); setAskError(""); };
-
   return (
     <div>
       <BrandHeader eventName={shopName} />
@@ -161,8 +151,8 @@ export function DashboardPage() {
         {loadError && <Alert onRetry={() => void loadSummary()}>{loadError}</Alert>}
         {summary && <>
           <section className="metric-grid" aria-label="Today at a glance">
-            <article className="metric-card"><span className="metric-label">Gross captured today</span><strong>{money(summary.metrics.grossSalesMinor)}</strong><span className="metric-footnote">Before completed refunds</span></article>
-            <article className="metric-card"><span className="metric-label">Net captured sales</span><strong>{money(summary.metrics.netSalesMinor)}</strong><span className="metric-footnote">After completed refunds</span></article>
+            <article className="metric-card"><span className="metric-label">Gross captured today</span><strong>{money(summary.metrics.grossSalesMinor, currency)}</strong><span className="metric-footnote">Before completed refunds</span></article>
+            <article className="metric-card"><span className="metric-label">Net captured sales</span><strong>{money(summary.metrics.netSalesMinor, currency)}</strong><span className="metric-footnote">After completed refunds</span></article>
             <article className="metric-card"><span className="metric-label">Paid orders · low stock</span><strong>{summary.metrics.paidOrderCount} <span aria-hidden="true">·</span> {summary.metrics.lowStockCount}</strong><span className="metric-footnote">Includes collected orders</span></article>
           </section>
           <div className="dashboard-grid">
@@ -183,22 +173,13 @@ export function DashboardPage() {
                   />)}
                 </div>}
               </section>
-              <MenuSetupCard onSaved={loadSummary} />
+              <MenuSetupCard onSaved={loadSummary} currency={currency} assistantSuggestions={assistantSuggestions}
+                onAssistantSuggestionsAdded={clearAssistantSuggestions} onDraftContextChange={updateMenuDraftContext} />
               <InventoryCard products={summary.products} saving={saving} feedback={productFeedback} onSave={saveProduct} />
             </div>
             <div className="dashboard-column">
-              <ShopQRCodeCard shopSlug={summary.shop?.slug ?? shopSlug ?? "little-harbor-market"} />
-              <section className="dashboard-card ai-card" aria-labelledby="ops-heading">
-                <div className="section-heading"><div><p className="eyebrow">Grounded in live sales and stock</p><h2 id="ops-heading"><Sparkles size={20} aria-hidden="true" /> Operations helper</h2><p>Ask a question. Source figures come from the order book.</p></div></div>
-                <div className="ai-prompts">{prompts.map((prompt) => <button key={prompt} type="button" onClick={() => usePrompt(prompt)}>{prompt}</button>)}</div>
-                <form onSubmit={ask}>
-                  <div className="form-field"><label className="sr-only" htmlFor="ops-question">Ask about stock or sales</label><textarea id="ops-question" rows={3} maxLength={500} placeholder="Ask about stock or sales…" value={question} onChange={(event) => setQuestion(event.target.value)} /></div>
-                  <button className="button button-primary" type="submit" disabled={!question.trim() || asking}>{asking ? "Checking the order book…" : "Ask the assistant"}</button>
-                </form>
-                {askError && <Alert>{askError}</Alert>}
-                {askResult && <div className="ai-answer" aria-live="polite"><h3>Answer</h3><p>{askResult.answer}</p><div className="source-facts" aria-label="Source figures">{Object.entries(askResult.sourceFacts).map(([key, value]) => <span key={key}><strong>{formatFactName(key)}:</strong> {formatFactValue(value)}</span>)}</div></div>}
-                <p className="form-help"><ShieldCheck size={14} aria-hidden="true" /> The assistant explains verified totals; it cannot change payments, refunds, or stock.</p>
-              </section>
+              <ShopQRCodeCard shopSlug={summary.shop?.slug ?? shopSlug ?? "little-harbor-market"} ownerSlug={publicOwnerSlug} />
+              <OwnerAssistantPanel currency={currency} draft={menuDraftContext} onAddToMenu={setAssistantSuggestions} />
               <section className="dashboard-card service-note"><div className="section-heading"><div><p className="eyebrow">Pickup reminder</p><h2>Keep the line moving</h2></div><CircleHelp size={20} aria-hidden="true" /></div><p>Confirm the pickup code with the guest before marking an order collected. Only paid, uncollected orders can be refunded.</p><Link to={shopUrl} className="text-button">Preview the market <ArrowUpRight size={14} aria-hidden="true" /></Link></section>
             </div>
           </div>
@@ -206,19 +187,4 @@ export function DashboardPage() {
       </main>
     </div>
   );
-}
-
-function formatFactName(value: string) { return value.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " "); }
-function formatFactValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  if (Array.isArray(value)) return value.length ? value.map((entry) => {
-    if (!entry || typeof entry !== "object") return String(entry);
-    const row = entry as Record<string, unknown>;
-    const name = typeof row.name === "string" ? row.name : typeof row.id === "string" ? row.id : "item";
-    const count = row.available ?? row.units_sold ?? row.quantity;
-    return count === undefined ? name : `${name} (${count})`;
-  }).join("; ") : "None";
-  return "See the live dashboard totals";
 }

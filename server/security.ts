@@ -43,15 +43,15 @@ function constantEqual(left: string, right: string): boolean {
   return Boolean(Number(digestMatches) & Number(left.length === right.length));
 }
 
-function visitorCookieName(shop: Pick<Shop, "id" | "slug">): string {
-  return shop.id === DEFAULT_SHOP_ID ? VISITOR_COOKIE : `yatalk_v_${shop.slug}`;
+function visitorCookieName(shop: Pick<Shop, "id">): string {
+  return shop.id === DEFAULT_SHOP_ID ? VISITOR_COOKIE : `yatalk_v_${shop.id}`;
 }
 
-function requestShop(request: Request): Pick<Shop, "id" | "slug"> {
-  return request.shop ? { id: request.shop.id, slug: request.shop.slug } : { id: DEFAULT_SHOP_ID, slug: "little-harbor-market" };
+function requestShop(request: Request): Pick<Shop, "id"> {
+  return request.shop ? { id: request.shop.id } : { id: DEFAULT_SHOP_ID };
 }
 
-export function createVisitorSession(db: Db, response: Response, config: AppConfig, shop = { id: DEFAULT_SHOP_ID, slug: "little-harbor-market" }): VisitorSession {
+export function createVisitorSession(db: Db, response: Response, config: AppConfig, shop: Pick<Shop, "id"> = { id: DEFAULT_SHOP_ID }): VisitorSession {
   db.prepare(`DELETE FROM visitor_sessions WHERE session_hash IN (
     SELECT session_hash FROM visitor_sessions
     WHERE expires_at <= ?

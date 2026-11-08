@@ -13,12 +13,18 @@ export class ApiError extends Error {
 export function resolveApiPath(path: string, pathname = globalThis.location?.pathname ?? "/"): string {
   if (!path.startsWith("/api/")) return path;
   if (path.startsWith("/api/v1/")) return path;
+  const ownerShopPage = /^\/([a-z0-9-]+)\/([a-z0-9-]+)(?:\/|$)/.exec(pathname);
+  if (ownerShopPage && !["api", "dashboard", "shops", "organizer", "owners"].includes(ownerShopPage[1]!)) {
+    return `/api/v1/owners/${ownerShopPage[1]}/shops/${ownerShopPage[2]}${path.slice(4)}`;
+  }
   const shopPage = /^\/shops\/([a-z0-9-]+)(?:\/|$)/.exec(pathname);
   if (shopPage) return `/api/v1/shops/${shopPage[1]}${path.slice(4)}`;
-  const dashboardPage = /^\/dashboard\/shops\/([a-z0-9-]+)(?:\/|$)/.exec(pathname);
+  const dashboardPage = /^\/dashboard\/([a-z0-9-]+)\/([a-z0-9-]+)(?:\/|$)/.exec(pathname);
   if (dashboardPage && path.startsWith("/api/organizer/")) {
-    return `/api/v1/dashboard/shops/${dashboardPage[1]}${path.slice("/api/organizer".length)}`;
+    return `/api/v1/dashboard/${dashboardPage[1]}/${dashboardPage[2]}${path.slice("/api/organizer".length)}`;
   }
+  const legacyDashboardPage = /^\/dashboard\/shops\/([a-z0-9-]+)(?:\/|$)/.exec(pathname);
+  if (legacyDashboardPage && path.startsWith("/api/organizer/")) return `/api/v1/dashboard/shops/${legacyDashboardPage[1]}${path.slice("/api/organizer".length)}`;
   return path;
 }
 

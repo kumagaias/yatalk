@@ -18,7 +18,7 @@ import { GeminiVertex, type AiProvider } from "./services/ai.js";
 import { PayPalClient, type PayPalProvider } from "./services/paypal.js";
 import { trustedProxyHops } from "./network.js";
 import { requireOwner, requireShopMember } from "./owner-auth.js";
-import { requireShopSlug, useDefaultShop } from "./shop-context.js";
+import { requireOwnerShopSlug, requireShopSlug, useDefaultShop } from "./shop-context.js";
 
 export interface CreateAppOptions {
   config: AppConfig;
@@ -65,9 +65,14 @@ export function createApp(options: CreateAppOptions): express.Express {
   app.get("/api/health", (_request, response) => response.json({ ok: true }));
   const v1 = express.Router();
   v1.use(tenantRoutes(db, config));
-  v1.use("/shops/:shopSlug", requireShopSlug(db), publicRoutes(db, config, ai), voiceRoutes(db, config, ai), orderRoutes(db, config, paypal));
+  // Keep the legacy /dashboard/shops/:shopSlug alias ahead of the two-segment
+  // owner route so "shops" is not interpreted as an owner slug.
   v1.use("/dashboard/shops/:shopSlug", requireShopSlug(db, true), requireOwner(db), requireShopMember(db),
     managementOperations(db, config, paypal, ai, (request) => request.shop!.id, (request) => request.ownerUserId ?? null));
+  v1.use("/owners/:ownerSlug/shops/:shopSlug", requireOwnerShopSlug(db), publicRoutes(db, config, ai), voiceRoutes(db, config, ai), orderRoutes(db, config, paypal));
+  v1.use("/dashboard/:ownerSlug/:shopSlug", requireOwnerShopSlug(db, true), requireOwner(db), requireShopMember(db),
+    managementOperations(db, config, paypal, ai, (request) => request.shop!.id, (request) => request.ownerUserId ?? null));
+  v1.use("/shops/:shopSlug", requireShopSlug(db), publicRoutes(db, config, ai), voiceRoutes(db, config, ai), orderRoutes(db, config, paypal));
   app.use("/api/v1", v1);
 
   app.use("/api", useDefaultShop(db));

@@ -66,14 +66,14 @@ export function clearOwnerSession(db: Db, request: Request, response: Response, 
   response.append("Set-Cookie", `${OWNER_COOKIE}=; ${cookieOptions(config, 0)}`);
 }
 
-export function ownerFromRequest(db: Db, request: Request): { id: string; email: string } | undefined {
+export function ownerFromRequest(db: Db, request: Request): { id: string; email: string; displayName: string; ownerSlug: string | null; defaultCurrency: import("../shared/currency.js").CurrencyCode } | undefined {
   const token = getCookie(request, OWNER_COOKIE);
   if (!token || !/^[A-Za-z0-9_-]{40,64}$/.test(token)) return undefined;
-  const row = db.prepare(`SELECT users.id, users.email FROM owner_sessions
+  const row = db.prepare(`SELECT users.id, users.email, users.display_name, users.owner_slug, users.default_currency FROM owner_sessions
     JOIN users ON users.id = owner_sessions.user_id
     WHERE owner_sessions.token_hash = ? AND owner_sessions.expires_at > ?`)
-    .get(digest(token), new Date().toISOString()) as { id: string; email: string } | undefined;
-  return row;
+    .get(digest(token), new Date().toISOString()) as { id: string; email: string; display_name: string; owner_slug: string | null; default_currency: import("../shared/currency.js").CurrencyCode } | undefined;
+  return row ? { id: row.id, email: row.email, displayName: row.display_name, ownerSlug: row.owner_slug, defaultCurrency: row.default_currency } : undefined;
 }
 
 export function requireOwner(db: Db) {
@@ -84,6 +84,9 @@ export function requireOwner(db: Db) {
       return;
     }
     request.ownerUserId = owner.id;
+    request.ownerSlug = owner.ownerSlug ?? undefined;
+    request.ownerDisplayName = owner.displayName;
+    request.ownerCurrency = owner.defaultCurrency;
     next();
   };
 }

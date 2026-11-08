@@ -9,8 +9,17 @@ import { createRequestKey, money } from "../lib/format";
 import { isReceiptReady } from "../lib/order-status";
 import { Alert } from "./Feedback";
 
-function currentShopSlug(): string {
-  return /^\/shops\/([a-z0-9-]+)(?:\/|$)/.exec(globalThis.location?.pathname ?? "")?.[1] ?? "little-harbor-market";
+const reservedPrefixes = ["api", "dashboard", "shops", "organizer", "owners"];
+function currentShopPath(): string {
+  const pathname = globalThis.location?.pathname ?? "";
+  const ownerShop = /^\/([a-z0-9-]+)\/([a-z0-9-]+)(?:\/|$)/.exec(pathname);
+  if (ownerShop && !reservedPrefixes.includes(ownerShop[1]!)) return `/${ownerShop[1]}/${ownerShop[2]}`;
+  const legacyShop = /^\/shops\/([a-z0-9-]+)(?:\/|$)/.exec(pathname);
+  return legacyShop ? `/shops/${legacyShop[1]}` : "/shops/little-harbor-market";
+}
+function currentShopKey(): string {
+  const path = currentShopPath();
+  return path.startsWith("/shops/") ? `legacy:${path.slice("/shops/".length)}` : path.slice(1);
 }
 type CheckoutState = "idle" | "creating" | "create_unknown" | "ready" | "capturing" | "capture_unknown" | "canceling" | "cancel_unknown" | "paid" | "cancelled" | "error";
 type Attempt = {
@@ -28,7 +37,7 @@ type Attempt = {
 
 function restoreAttempt(): Attempt {
   try {
-    const raw = readCheckoutAttempt(sessionStorage, currentShopSlug());
+    const raw = readCheckoutAttempt(sessionStorage, currentShopKey());
     if (raw) {
       const restored = JSON.parse(raw) as Attempt;
       if (restored.state === "creating") restored.state = "create_unknown";
@@ -87,7 +96,7 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
 
   useEffect(() => {
     try {
-      persistCheckoutAttempt(sessionStorage, checkoutStorageKey(currentShopSlug()), attempt);
+      persistCheckoutAttempt(sessionStorage, checkoutStorageKey(currentShopKey()), attempt);
     } catch {
       setStatusMessage("This browser cannot save retry details. Keep this tab open while checkout is in progress.");
     }
@@ -233,7 +242,7 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
   const sdkError = () => setStatusMessage("PayPal checkout had a problem. Your order is still pending; retry the PayPal button or cancel checkout.");
   const retrySdk = () => setSdkRevision((value) => value + 1);
   const isAvailable = Boolean(config?.paypalEnabled && config.paypalClientId);
-  const shopSlug = /^\/shops\/([a-z0-9-]+)(?:\/|$)/.exec(globalThis.location?.pathname ?? "")?.[1] ?? "little-harbor-market";
+  const orderStatusPath = `${currentShopPath()}/orders/${encodeURIComponent(attempt.orderId ?? "")}`;
 
   return (
     <section className="checkout-panel" aria-labelledby="checkout-heading">
@@ -270,7 +279,7 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
           <div className="receipt-summary"><span>Order <strong>#{attempt.orderId?.slice(0, 8).toUpperCase()}</strong></span><span>Total <strong>{money(attempt.totalMinor ?? cart.totalMinor, attempt.currency ?? cart.currency)}</strong></span></div>
           <p>Show this pickup code to the organizer.</p>
           <div className="pickup-code"><span>Pickup code</span><strong>{attempt.pickupCode}</strong></div>
-          {attempt.orderId && <Link className="text-button" to={`/shops/${encodeURIComponent(shopSlug)}/orders/${encodeURIComponent(attempt.orderId)}`}>Open order status</Link>}
+          {attempt.orderId && <Link className="text-button" to={orderStatusPath}>Open order status</Link>}
         </div>
       )}
       {statusMessage && (attempt.state !== "ready") && <p className="checkout-status" role="status">{statusMessage}</p>}

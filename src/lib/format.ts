@@ -1,9 +1,7 @@
+import { formatMinor } from "../../shared/currency.js";
+
 export function money(amountMinor: number, currency = "JPY"): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: currency === "JPY" ? 0 : 2,
-  }).format(amountMinor / (currency === "JPY" ? 1 : 100));
+  return formatMinor(amountMinor, currency);
 }
 
 export function shortTime(value?: string): string {

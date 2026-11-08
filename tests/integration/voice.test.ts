@@ -52,6 +52,7 @@ test("voice route returns a retry message when a valid clip contains no clear sp
   const noSpeechAi: AiProvider = {
     async interpretCart() { return { reply: "", clarification: null, operations: [] }; },
     async explainFacts() { return ""; },
+    async assistMenu() { return { reply: "I can help draft menu items.", suggestions: [] }; },
     async transcribeAudio() { return ""; },
     async extractMenu() { return { items: [] }; },
   };

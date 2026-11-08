@@ -1,5 +1,6 @@
 import path from "node:path";
 import dotenv from "dotenv";
+import type { CurrencyCode } from "../shared/currency.js";
 
 dotenv.config();
 
@@ -9,7 +10,7 @@ export interface AppConfig {
   appOrigin: string;
   eventName: string;
   eventTimeZone: string;
-  currency: "JPY";
+  currency: CurrencyCode;
   databasePath: string;
   paypalMode: "sandbox";
   paypalClientId: string | null;
@@ -52,9 +53,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   if (env.PAYPAL_MODE?.trim() && env.PAYPAL_MODE.trim().toLowerCase() !== "sandbox") {
     throw new Error("PAYPAL_MODE must be sandbox for this demo");
-  }
-  if (env.PAYPAL_CURRENCY?.trim() && env.PAYPAL_CURRENCY.trim().toUpperCase() !== "JPY") {
-    throw new Error("PAYPAL_CURRENCY must be JPY for this event");
   }
   const adminSessionSecret = optionalSecret(env.ADMIN_SESSION_SECRET);
   if (adminSessionSecret && Buffer.byteLength(adminSessionSecret, "utf8") < 32) {

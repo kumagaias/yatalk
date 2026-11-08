@@ -27,7 +27,7 @@ export class FakePayPal implements PayPalProvider {
   refundRequestIds: string[] = [];
   verifyCalls = 0;
   getOrderCalls = 0;
-  orders = new Map<string, { localOrderId: string; total: number; completed: boolean }>();
+  orders = new Map<string, { localOrderId: string; total: number; currency: string; completed: boolean }>();
   failFirstCreate = false;
   failFirstCapture = false;
   failFirstRefund = false;
@@ -43,7 +43,7 @@ export class FakePayPal implements PayPalProvider {
     this.createCalls.push(input);
     if (this.failFirstCreate && this.createCalls.length === 1) throw new ProviderError("paypal", "mutation", false);
     const id = `PAYPAL-${input.localOrderId}`;
-    this.orders.set(id, { localOrderId: input.localOrderId, total: input.totalMinor, completed: false });
+    this.orders.set(id, { localOrderId: input.localOrderId, total: input.totalMinor, currency: input.currency, completed: false });
     return { id, status: "CREATED", approveUrl: null };
   }
   async getOrder(orderId: string): Promise<PayPalCaptureResult> {
@@ -54,7 +54,7 @@ export class FakePayPal implements PayPalProvider {
     return { orderId, orderStatus: this.orderStatusOverride ?? (order.completed ? "COMPLETED" : "APPROVED"),
       referenceId: order.localOrderId, customId: order.localOrderId,
       captureId: order.completed ? `CAPTURE-${order.localOrderId}` : null,
-      captureStatus: order.completed ? "COMPLETED" : null, currency: "JPY", amountMinor: order.total + (this.mismatchAmount ? 1 : 0) };
+      captureStatus: order.completed ? "COMPLETED" : null, currency: order.currency, amountMinor: order.total + (this.mismatchAmount ? 1 : 0) };
   }
   async captureOrder(orderId: string, requestId: string): Promise<PayPalCaptureResult> {
     this.captureCalls.push(orderId);
@@ -63,7 +63,7 @@ export class FakePayPal implements PayPalProvider {
     const order = this.orders.get(orderId)!;
     order.completed = true;
     return { orderId, orderStatus: "COMPLETED", referenceId: order.localOrderId, customId: order.localOrderId,
-      captureId: `CAPTURE-${order.localOrderId}`, captureStatus: "COMPLETED", currency: "JPY",
+      captureId: `CAPTURE-${order.localOrderId}`, captureStatus: "COMPLETED", currency: order.currency,
       amountMinor: order.total + (this.mismatchAmount ? 1 : 0) };
   }
   async refundCapture(captureId: string, amountMinor: number, currency: string, requestId: string): Promise<PayPalRefundResult> {
@@ -83,6 +83,9 @@ export class FakePayPal implements PayPalProvider {
 const fakeAi: AiProvider = {
   async interpretCart() { return { reply: "I can help with that.", clarification: null, operations: [] }; },
   async explainFacts() { return "Sales and stock are based on the dashboard figures."; },
+  async assistMenu() { return { reply: "Here is a draft to review.", suggestions: [
+    { name: "Citrus tea", description: "A bright tea idea", priceMinor: null, dietaryNote: "" },
+  ] }; },
   async transcribeAudio() { return "Two yakisoba and one iced tea"; },
   async extractMenu() { return { items: [
     { name: "Grilled Onigiri", description: "", priceMinor: 400, dietaryNote: "Contains soy" },

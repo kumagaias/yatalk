@@ -49,9 +49,11 @@ test("single-shop databases migrate old rows into the default tenant", () => {
       .get() as { shop_id: string; cart_version: number };
     const shop = db.prepare("SELECT catalog_revision FROM shops WHERE id = ?").get(DEFAULT_SHOP_ID) as { catalog_revision: number };
     assert.equal(product.shop_id, DEFAULT_SHOP_ID);
+    assert.equal((db.prepare("SELECT currency FROM products WHERE id = 'legacy-product'").get() as { currency: string }).currency, "JPY");
     assert.equal(session.shop_id, DEFAULT_SHOP_ID);
     assert.equal(session.cart_version, 2);
     assert.equal(shop.catalog_revision, 7);
+    assert.deepEqual(db.pragma("foreign_key_check"), []);
   } finally {
     db?.close();
     rmSync(directory, { recursive: true, force: true });

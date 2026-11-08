@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SUPPORTED_CURRENCIES } from "./currency.js";
 
 const cartOperationFields = {
   action: z.enum(["add", "set", "remove"]),
@@ -92,20 +93,48 @@ export const organizerQuestionSchema = z.object({
   question: z.string().trim().min(1).max(500),
 }).strict();
 
+const menuDraftItemSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(240),
+  priceMinor: z.number().int().min(1).max(1_000_000).nullable(),
+  dietaryNote: z.string().trim().max(160),
+}).strict();
+
+export const menuAssistantRequestSchema = z.object({
+  message: z.string().trim().min(1).max(800),
+  history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(800) }).strict()).max(8),
+  draft: z.array(menuDraftItemSchema).max(30),
+}).strict();
+
+export const menuAssistantResponseSchema = z.object({
+  reply: z.string().trim().min(1).max(500),
+  suggestions: z.array(menuDraftItemSchema).max(12),
+}).strict();
+
 export const shopSlugSchema = z.string().min(3).max(40)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers, and single hyphens")
   .refine((slug) => slug !== "new", "This shop address is reserved");
+
+const reservedOwnerSlugs = new Set(["api", "dashboard", "shops", "organizer", "owners", "new"]);
+export const ownerSlugSchema = z.string().min(3).max(40)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers, and single hyphens")
+  .refine((slug) => !reservedOwnerSlugs.has(slug), "This owner address is reserved");
+export const currencySchema = z.enum(SUPPORTED_CURRENCIES);
+
+export const ownerRegistrationRequestSchema = z.object({
+  displayName: z.string().trim().min(1).max(80),
+  ownerSlug: ownerSlugSchema,
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  password: z.string().min(12).max(128),
+  defaultCurrency: currencySchema,
+}).strict();
 
 const shopFields = {
   name: z.string().trim().min(1).max(80),
   slug: shopSlugSchema,
 } as const;
 
-export const createShopRequestSchema = z.object({
-  ...shopFields,
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
-  password: z.string().min(12).max(128),
-}).strict();
+export const createShopRequestSchema = z.object(shopFields).strict();
 
 export const addShopRequestSchema = z.object(shopFields).strict();
 
@@ -145,3 +174,7 @@ export type CreateProduct = z.infer<typeof createProductSchema>;
 export type MenuExtraction = z.infer<typeof menuExtractionSchema>;
 export type RefundRequest = z.infer<typeof refundRequestSchema>;
 export type OrganizerQuestionRequest = z.infer<typeof organizerQuestionSchema>;
+export type MenuAssistantRequest = z.infer<typeof menuAssistantRequestSchema>;
+export type MenuAssistantResponse = z.infer<typeof menuAssistantResponseSchema>;
+export type OwnerRegistrationRequest = z.infer<typeof ownerRegistrationRequestSchema>;
+export type Currency = z.infer<typeof currencySchema>;
