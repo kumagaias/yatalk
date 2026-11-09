@@ -92,7 +92,7 @@ Yatalk is a hackathon prototype, so Terraform uses only `infra/environments/prd`
 
 The single Cloud Run service remains a hackathon preview. In production mode, shop accounts, storefronts, menus, carts, and orders use the Firestore Standard default database in `asia-northeast1`; they survive Cloud Run restarts and revisions. Firestore has a usage-based free quota for one database per project (currently 1 GiB stored data, 50,000 reads, 20,000 writes, and 20,000 deletes per day, plus 10 GiB monthly outbound transfer). Usage above the free quota is billed, and managed TTL deletions used for expired sessions and carts are not included in the free quota. See [Firestore pricing](https://cloud.google.com/firestore/pricing) and [quotas](https://docs.cloud.google.com/firestore/quotas) for current terms. The existing ¥5,000 project budget sends alerts; it does not stop spending. The app's per-IP and per-session rate limits still live in process memory. The current preview uses PayPal Sandbox and is configured for demo orders.
 
-The Firestore backend does not automatically import the current preview's temporary SQLite file. Preserve or explicitly reset any preview-only shops and owner accounts before switching the live service to Firestore.
+This rollout did not import records from the preview's temporary SQLite file. At cutover, the public `test` shop menu returned 404. Any owner login or custom shop held only in that SQLite file is not present in Firestore; the owner may need to register again. The Firestore backend now starts with the seeded sample storefront.
 
 ## Demo screenshots
 
