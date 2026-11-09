@@ -25,7 +25,13 @@ Keep Yatalk shop, owner, menu, cart, and order data across Cloud Run restarts wh
 - Terraform formatting and validation passed.
 - Gitleaks found no secrets in the working tree or staged changes.
 
+## Cloud preparation
+
+- Firestore API, default database in `asia-northeast1`, four indexes, three TTL policies, and `roles/datastore.user` were applied with a database-only plan: 10 added, 0 changed, 0 destroyed. Cloud Run remained on SQLite.
+- Cloud Build `ae758e29-efb6-4158-aef5-cd74d9d3918a` succeeded for commit `51cff86`; the image digest is pinned in `prd.auto.tfvars`.
+- The final Terraform plan is 0 added, 1 Cloud Run update, 0 destroyed. It switches from `/tmp/yatalk/yatalk.sqlite` to Firestore and deploys the digest-pinned image.
+
 ## Next steps
 
-- Obtain authenticated Google Cloud access, run a reviewed Terraform plan, preserve or resolve the current preview SQLite shop/account data, then apply and deploy.
+- Resolve whether to recreate the old temporary SQLite owner/shop data; the public `/shops/test` menu currently returns 404. Then apply the reviewed Cloud Run plan and deploy.
 - Verify the live shop, owner login, catalog, and order persistence after deployment.
