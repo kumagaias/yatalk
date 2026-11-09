@@ -247,6 +247,10 @@ resource "google_cloud_run_v2_service" "preview" {
         value = var.project_id
       }
       env {
+        name  = "DATABASE_BACKEND"
+        value = "firestore"
+      }
+      env {
         name  = "GOOGLE_CLOUD_LOCATION"
         value = "global"
       }
@@ -262,11 +266,6 @@ resource "google_cloud_run_v2_service" "preview" {
         name  = "PAYPAL_CURRENCY"
         value = "JPY"
       }
-      env {
-        name  = "DATABASE_PATH"
-        value = "/tmp/yatalk/yatalk.sqlite"
-      }
-
       dynamic "env" {
         for_each = var.app_origin == "" ? [] : [var.app_origin]
         content {
@@ -350,6 +349,11 @@ resource "google_cloud_run_v2_service" "preview" {
   depends_on = [
     google_project_service.preview_apis,
     google_project_service.vertex_ai,
+    google_project_iam_member.runtime_firestore_user,
+    google_firestore_index.orders_expiry,
+    google_firestore_index.orders_daily_captured,
+    google_firestore_index.orders_recent,
+    google_firestore_index.products_shop_active,
     google_project_iam_member.runtime_vertex_ai,
     google_secret_manager_secret_iam_member.runtime_paypal_client_id,
     google_secret_manager_secret_iam_member.runtime_paypal_client_secret,

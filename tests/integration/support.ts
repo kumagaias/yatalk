@@ -3,6 +3,9 @@ import { once } from "node:events";
 import { createApp } from "../../server/app.js";
 import type { AppConfig } from "../../server/config.js";
 import { createDatabase } from "../../server/database.js";
+import type { FirestoreDb } from "../../server/database.js";
+import { createFirestoreDatabase, initializeFirestoreDatabase } from "../../server/firestore-bootstrap.js";
+import { randomUUID } from "node:crypto";
 import { ProviderError } from "../../server/errors.js";
 import type { AiProvider } from "../../server/services/ai.js";
 import type { PayPalCaptureResult, PayPalOrderInput, PayPalProvider, PayPalRefundResult, WebhookHeaders } from "../../server/services/paypal.js";
@@ -12,7 +15,7 @@ export const origin = "http://127.0.0.1:5173";
 function config(): AppConfig {
   return {
     nodeEnv: "test", port: 4000, appOrigin: origin,
-    eventName: "Little Harbor Market", eventTimeZone: "Asia/Tokyo", currency: "JPY", databasePath: ":memory:",
+    eventName: "Little Harbor Market", eventTimeZone: "Asia/Tokyo", currency: "JPY", databaseBackend: "sqlite", databasePath: ":memory:",
     paypalMode: "sandbox", paypalClientId: "test-client", paypalClientSecret: "test-secret", paypalWebhookId: "test-webhook",
     googleCloudProject: null, googleCloudLocation: "global", geminiModel: "test-model",
     adminAccessCode: "local-test-code!!", adminSessionSecret: "test-session-secret",
@@ -106,6 +109,30 @@ export async function withServer<T>(paypal: FakePayPal, work: (url: string, db: 
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve()); server.closeAllConnections();
     });
+    db.close();
+  }
+}
+
+export async function withFirestoreServer<T>(
+  paypal: FakePayPal,
+  work: (url: string, db: FirestoreDb) => Promise<T>,
+  assistant: AiProvider = fakeAi,
+  projectId = `yatalk-test-${randomUUID().slice(0, 8)}`,
+): Promise<T> {
+  if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error("FIRESTORE_EMULATOR_HOST is required for Firestore integration tests");
+  const db = createFirestoreDatabase(projectId);
+  await initializeFirestoreDatabase(db);
+  const app = createApp({ config: { ...config(), databaseBackend: "firestore", googleCloudProject: projectId }, db, paypal, ai: assistant, serveStatic: false });
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Test server did not bind");
+  try { return await work(`http://127.0.0.1:${address.port}`, db); }
+  finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve()); server.closeAllConnections();
+    });
+    await db.firestoreStore.client.terminate();
     db.close();
   }
 }

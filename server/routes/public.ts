@@ -25,27 +25,28 @@ export function publicRoutes(db: Db, config: AppConfig, ai: AiProvider): Router 
     response.json({ eventName: shopName(request), currency: request.shop?.currency ?? config.currency,
       paypalClientId: config.paypalClientId, paypalEnabled: !!(config.paypalClientId && config.paypalClientSecret) });
   });
-  router.get("/menu", (request, response) => response.json(menuResponse(db, shopName(request), shopId(request))));
-  router.get("/cart", cartPerIp, (request, response) => {
-    const session = attachVisitorIfPresent(db, request) ?? createVisitorSession(db, response, config, request.shop);
+  router.get("/menu", async (request, response) => response.json(await menuResponse(db, shopName(request), shopId(request))));
+  router.get("/cart", cartPerIp, async (request, response) => {
+    const existing = await attachVisitorIfPresent(db, request);
+    const session = existing ?? await createVisitorSession(db, response, config, request.shop);
     request.visitorSession = session;
-    response.json(readCart(db, session.hash, shopId(request)));
+    response.json(await readCart(db, session.hash, shopId(request)));
   });
 
-  router.post("/cart/items", originOnly, visitorOnly, cartPerIp, (request, _response, next) => {
+  router.post("/cart/items", originOnly, visitorOnly, cartPerIp, async (request, _response, next) => {
     try {
       requireJson(request);
       const input = parseBody(cartItemRequestSchema, request);
-      ensureVersions(db, request.visitorSession!.hash, input.cartVersion, input.catalogRevision, shopId(request));
-      const cart = applyCartOperations(db, request.visitorSession!.hash, [input], shopId(request));
+      await ensureVersions(db, request.visitorSession!.hash, input.cartVersion, input.catalogRevision, shopId(request));
+      const cart = await applyCartOperations(db, request.visitorSession!.hash, [input], shopId(request));
       _response.json(cart);
     } catch (error) { next(error); }
   });
 
-  router.delete("/cart", originOnly, visitorOnly, cartPerIp, (request, response, next) => {
+  router.delete("/cart", originOnly, visitorOnly, cartPerIp, async (request, response, next) => {
     try {
       requireEmptyBody(request);
-      response.json(clearCart(db, request.visitorSession!.hash, shopId(request)));
+      response.json(await clearCart(db, request.visitorSession!.hash, shopId(request)));
     }
     catch (error) { next(error); }
   });
@@ -54,9 +55,9 @@ export function publicRoutes(db: Db, config: AppConfig, ai: AiProvider): Router 
     requireJson(request);
     const input = parseBody(chatRequestSchema, request);
     const sessionHash = request.visitorSession!.hash;
-    ensureVersions(db, sessionHash, input.cartVersion, input.catalogRevision, shopId(request));
-    const cart = readCart(db, sessionHash, shopId(request));
-    const products = listProducts(db, shopId(request)).map(({ id, name, description, available, dietaryNote }) => ({ id, name, description, available, dietaryNote }));
+    await ensureVersions(db, sessionHash, input.cartVersion, input.catalogRevision, shopId(request));
+    const cart = await readCart(db, sessionHash, shopId(request));
+    const products = (await listProducts(db, shopId(request))).map(({ id, name, description, available, dietaryNote }) => ({ id, name, description, available, dietaryNote }));
     logStage(request.requestId, "gemini_cart_intent", "start");
     let model;
     try {
@@ -68,8 +69,8 @@ export function publicRoutes(db: Db, config: AppConfig, ai: AiProvider): Router 
     }
     let nextCart = cart;
     if (model.operations.length) {
-      ensureVersions(db, sessionHash, input.cartVersion, input.catalogRevision, shopId(request));
-      nextCart = applyCartOperations(db, sessionHash, model.operations, shopId(request));
+      await ensureVersions(db, sessionHash, input.cartVersion, input.catalogRevision, shopId(request));
+      nextCart = await applyCartOperations(db, sessionHash, model.operations, shopId(request));
     }
     response.json({ reply: model.reply, clarification: model.clarification, cart: nextCart });
   });

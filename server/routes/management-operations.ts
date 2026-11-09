@@ -29,14 +29,14 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
     limit: MAX_MENU_IMAGE_BYTES,
   });
 
-  router.get("/summary", (request, response) => {
+  router.get("/summary", async (request, response) => {
     const shopId = shopIdOf(request);
     response.json({ shop: request.shop ? { slug: request.shop.slug, ownerSlug: request.shop.ownerSlug, name: request.shop.name, currency: request.shop.currency, status: request.shop.status } : undefined,
-      ...organizerSummary(db, request.shop?.timeZone ?? config.eventTimeZone, shopId) });
+      ...await organizerSummary(db, request.shop?.timeZone ?? config.eventTimeZone, shopId) });
   });
 
-  router.get("/orders/:id", (request, response) => {
-    response.json(adminOrder(db, routeParam(request, "id"), shopIdOf(request)));
+  router.get("/orders/:id", async (request, response) => {
+    response.json(await adminOrder(db, routeParam(request, "id"), shopIdOf(request)));
   });
 
   router.post("/menu/scan", originOnly, menuScanLimit, parseMenuImage, async (request, response) => {
@@ -72,31 +72,31 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
     }
   });
 
-  router.post("/products/bulk", originOnly, mutationLimit, (request, response) => {
+  router.post("/products/bulk", originOnly, mutationLimit, async (request, response) => {
     requireJson(request);
     const { products: input } = parseBody(createProductsRequestSchema, request);
     const shopId = shopIdOf(request);
-    const products = createProducts(db, input, shopId);
-    for (const product of products) audit(db, "product_created", product.id, {}, shopId, actorIdOf(request));
+    const products = await createProducts(db, input, shopId);
+    for (const product of products) await audit(db, "product_created", product.id, {}, shopId, actorIdOf(request));
     response.status(201).json({ products });
   });
 
-  router.patch("/products/:id", originOnly, mutationLimit, (request, response) => {
+  router.patch("/products/:id", originOnly, mutationLimit, async (request, response) => {
     requireJson(request);
     const patch = parseBody(productPatchSchema, request);
     const id = routeParam(request, "id");
     const shopId = shopIdOf(request);
-    const product = patchProduct(db, id, patch, shopId);
-    audit(db, "product_updated", id, { fields: Object.keys(patch).sort() }, shopId, actorIdOf(request));
+    const product = await patchProduct(db, id, patch, shopId);
+    await audit(db, "product_updated", id, { fields: Object.keys(patch).sort() }, shopId, actorIdOf(request));
     response.json(product);
   });
 
-  router.post("/orders/:id/collect", originOnly, mutationLimit, (request, response) => {
+  router.post("/orders/:id/collect", originOnly, mutationLimit, async (request, response) => {
     requireEmptyBody(request);
     const id = routeParam(request, "id");
     const shopId = shopIdOf(request);
-    const result = collectOrder(db, id, shopId);
-    audit(db, "order_collected", id, {}, shopId, actorIdOf(request));
+    const result = await collectOrder(db, id, shopId);
+    await audit(db, "order_collected", id, {}, shopId, actorIdOf(request));
     response.json(result);
   });
 
@@ -108,7 +108,7 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
       const id = routeParam(request, "id");
       const shopId = shopIdOf(request);
       const result = await refundOrder(db, paypal, id, restock, shopId, request.requestId);
-      audit(db, "refund_requested", id, { restock, resultState: result.body.state }, shopId, actorIdOf(request));
+      await audit(db, "refund_requested", id, { restock, resultState: result.body.state }, shopId, actorIdOf(request));
       logStage(request.requestId, "paypal_refund", result.status < 300 ? "success" : "failure");
       response.status(result.status).json(result.body);
     } catch (error) {
@@ -121,7 +121,7 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
     requireJson(request);
     const { question } = parseBody(organizerQuestionSchema, request);
     const shopId = shopIdOf(request);
-    const sourceFacts = organizerFacts(db, request.shop?.timeZone ?? config.eventTimeZone, new Date(), shopId);
+    const sourceFacts = await organizerFacts(db, request.shop?.timeZone ?? config.eventTimeZone, new Date(), shopId);
     logStage(request.requestId, "gemini_organizer_answer", "start");
     try {
       const answer = await ai.explainFacts(question, sourceFacts);

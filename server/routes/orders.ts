@@ -33,8 +33,8 @@ export function orderRoutes(db: Db, config: AppConfig, paypal: PayPalProvider): 
     }
   });
 
-  router.get("/orders/:id", visitorOnly, (request, response) => {
-    response.json(readOwnedOrder(db, request.visitorSession!.hash, routeParam(request, "id"), shopId(request)));
+  router.get("/orders/:id", visitorOnly, async (request, response) => {
+    response.json(await readOwnedOrder(db, request.visitorSession!.hash, routeParam(request, "id"), shopId(request)));
   });
 
   router.post("/orders/:id/capture", originOnly, visitorOnly, orderPerIp, orderPerSession, async (request, response) => {
@@ -55,9 +55,9 @@ export function orderRoutes(db: Db, config: AppConfig, paypal: PayPalProvider): 
     }
   });
 
-  router.post("/orders/:id/cancel", originOnly, visitorOnly, orderPerIp, orderPerSession, (request, response) => {
+  router.post("/orders/:id/cancel", originOnly, visitorOnly, orderPerIp, orderPerSession, async (request, response) => {
     requireEmptyBody(request);
-    response.json(cancelOwnedOrder(db, request.visitorSession!.hash, routeParam(request, "id"), shopId(request)));
+    response.json(await cancelOwnedOrder(db, request.visitorSession!.hash, routeParam(request, "id"), shopId(request)));
   });
 
   return router;

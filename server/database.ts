@@ -3,8 +3,18 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "../shared/currency.js";
+import type { FirestoreStore } from "./firestore-store.js";
+import { seedProducts } from "./seed-data.js";
+import {
+  createShopRecord as createFirestoreShopRecord, getShopById as getFirestoreShopById,
+  getShopBySlug as getFirestoreShopBySlug, getShopByOwnerAndSlug as getFirestoreShopByOwnerAndSlug,
+  getCatalogRevision as getFirestoreCatalogRevision, incrementCatalogRevision as incrementFirestoreCatalogRevision,
+} from "./firestore-shops.js";
 
-export type Db = InstanceType<typeof Database>;
+type SqliteConnection = InstanceType<typeof Database>;
+export type SqliteDb = SqliteConnection & { readonly backend: "sqlite" };
+export type FirestoreDb = SqliteConnection & { readonly backend: "firestore"; readonly firestoreStore: FirestoreStore; readonly firestoreBrand: true };
+export type Db = SqliteDb | FirestoreDb;
 export const DEFAULT_SHOP_ID = "little-harbor-market";
 export const DEFAULT_SHOP_SLUG = "little-harbor-market";
 export const DEFAULT_SHOP_NAME = "Little Harbor Market";
@@ -19,15 +29,6 @@ export type Shop = {
   ownerSlug: string | null;
   status: "active" | "inactive";
 };
-
-const seedProducts = [
-  { id: "yakisoba", name: "Yakisoba", description: "Savory market noodles with vegetables.", price: 750, stock: 24, note: "Contains wheat and soy." },
-  { id: "taiyaki", name: "Taiyaki", description: "Warm fish-shaped cake with sweet red bean filling.", price: 450, stock: 15, note: "Contains wheat and egg." },
-  { id: "iced-tea", name: "Iced tea", description: "Chilled, unsweetened black tea.", price: 300, stock: 30, note: "No listed allergens." },
-  { id: "ramune", name: "Ramune", description: "A crisp, lightly sweet sparkling drink.", price: 350, stock: 18, note: "No listed allergens." },
-  { id: "onigiri", name: "Grilled onigiri", description: "Rice grilled with a light soy glaze.", price: 400, stock: 20, note: "Contains soy." },
-  { id: "mikan-jelly", name: "Mikan jelly", description: "A cool mandarin orange dessert.", price: 500, stock: 12, note: "No listed allergens." },
-];
 
 const schema = `
 PRAGMA foreign_keys = ON;
@@ -181,9 +182,10 @@ CREATE INDEX IF NOT EXISTS idx_orders_state_expiry ON orders(state, expires_at);
 CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id);
 `;
 
-export function createDatabase(databasePath = ":memory:", seed = true): Db {
+export function createDatabase(databasePath = ":memory:", seed = true): SqliteDb {
   if (databasePath !== ":memory:") fs.mkdirSync(path.dirname(databasePath), { recursive: true, mode: 0o700 });
-  const db = new Database(databasePath);
+  const db = new Database(databasePath) as SqliteDb;
+  Object.defineProperty(db, "backend", { value: "sqlite", enumerable: false });
   db.pragma("foreign_keys = ON");
   if (databasePath !== ":memory:") db.pragma("journal_mode = WAL");
   db.exec(schema);
@@ -364,23 +366,35 @@ function seedDefaultShop(db: Db): void {
   transaction();
 }
 
-export function createShopRecord(db: Db, input: { id?: string; slug: string; name: string; timeZone?: string; currency?: CurrencyCode; ownerUserId?: string }): Shop {
+export function createShopRecord(db: FirestoreDb, input: { id?: string; slug: string; name: string; timeZone?: string; currency?: CurrencyCode; ownerUserId?: string }): Promise<Shop>;
+export function createShopRecord(db: SqliteDb, input: { id?: string; slug: string; name: string; timeZone?: string; currency?: CurrencyCode; ownerUserId?: string }): Shop;
+export function createShopRecord(db: Db, input: { id?: string; slug: string; name: string; timeZone?: string; currency?: CurrencyCode; ownerUserId?: string }): Shop | Promise<Shop>;
+export function createShopRecord(db: Db, input: { id?: string; slug: string; name: string; timeZone?: string; currency?: CurrencyCode; ownerUserId?: string }): Shop | Promise<Shop> {
+  if ((db as FirestoreDb).firestoreBrand) return createFirestoreShopRecord(db as FirestoreDb, input);
   const id = input.id ?? randomUUID();
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO shops
     (id, slug, owner_user_id, name, time_zone, currency, status, catalog_revision, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)`)
     .run(id, input.slug, input.ownerUserId ?? null, input.name, input.timeZone ?? "Asia/Tokyo", input.currency ?? "JPY", now, now);
-  return getShopById(db, id)!;
+  return getShopById(db as SqliteDb, id)!;
 }
 
-export function getShopById(db: Db, id: string): Shop | undefined {
+export function getShopById(db: FirestoreDb, id: string): Promise<Shop | undefined>;
+export function getShopById(db: SqliteDb, id: string): Shop | undefined;
+export function getShopById(db: Db, id: string): Shop | undefined | Promise<Shop | undefined>;
+export function getShopById(db: Db, id: string): Shop | undefined | Promise<Shop | undefined> {
+  if ((db as FirestoreDb).firestoreBrand) return getFirestoreShopById(db as FirestoreDb, id);
   const row = db.prepare(`SELECT shops.id, shops.slug, shops.owner_user_id, shops.name, shops.time_zone, shops.currency, shops.status,
       users.owner_slug FROM shops LEFT JOIN users ON users.id = shops.owner_user_id WHERE shops.id = ?`).get(id) as ShopRow | undefined;
   return row ? toShop(row) : undefined;
 }
 
-export function getShopBySlug(db: Db, slug: string): Shop | undefined {
+export function getShopBySlug(db: FirestoreDb, slug: string): Promise<Shop | undefined>;
+export function getShopBySlug(db: SqliteDb, slug: string): Shop | undefined;
+export function getShopBySlug(db: Db, slug: string): Shop | undefined | Promise<Shop | undefined>;
+export function getShopBySlug(db: Db, slug: string): Shop | undefined | Promise<Shop | undefined> {
+  if ((db as FirestoreDb).firestoreBrand) return getFirestoreShopBySlug(db as FirestoreDb, slug);
   const row = db.prepare(`SELECT shops.id, shops.slug, shops.owner_user_id, shops.name, shops.time_zone, shops.currency, shops.status,
       users.owner_slug FROM shops LEFT JOIN users ON users.id = shops.owner_user_id
     WHERE shops.slug = ? AND (SELECT COUNT(*) FROM shops AS matching WHERE matching.slug = ?) = 1`)
@@ -393,7 +407,11 @@ function toShop(row: ShopRow): Shop {
   return { id: row.id, slug: row.slug, ownerUserId: row.owner_user_id, name: row.name, timeZone: row.time_zone, currency: row.currency, status: row.status, ownerSlug: row.owner_slug };
 }
 
-export function getShopByOwnerAndSlug(db: Db, ownerSlug: string, slug: string): Shop | undefined {
+export function getShopByOwnerAndSlug(db: FirestoreDb, ownerSlug: string, slug: string): Promise<Shop | undefined>;
+export function getShopByOwnerAndSlug(db: SqliteDb, ownerSlug: string, slug: string): Shop | undefined;
+export function getShopByOwnerAndSlug(db: Db, ownerSlug: string, slug: string): Shop | undefined | Promise<Shop | undefined>;
+export function getShopByOwnerAndSlug(db: Db, ownerSlug: string, slug: string): Shop | undefined | Promise<Shop | undefined> {
+  if ((db as FirestoreDb).firestoreBrand) return getFirestoreShopByOwnerAndSlug(db as FirestoreDb, ownerSlug, slug);
   const row = db.prepare(`SELECT shops.id, shops.slug, shops.owner_user_id, shops.name, shops.time_zone, shops.currency, shops.status,
       users.owner_slug FROM shops JOIN users ON users.id = shops.owner_user_id
       WHERE users.owner_slug = ? AND shops.slug = ?`)
@@ -401,15 +419,23 @@ export function getShopByOwnerAndSlug(db: Db, ownerSlug: string, slug: string): 
   return row ? toShop(row) : undefined;
 }
 
-export function getCatalogRevision(db: Db, shopId = DEFAULT_SHOP_ID): number {
+export function getCatalogRevision(db: FirestoreDb, shopId?: string): Promise<number>;
+export function getCatalogRevision(db: SqliteDb, shopId?: string): number;
+export function getCatalogRevision(db: Db, shopId?: string): number | Promise<number>;
+export function getCatalogRevision(db: Db, shopId = DEFAULT_SHOP_ID): number | Promise<number> {
+  if ((db as FirestoreDb).firestoreBrand) return getFirestoreCatalogRevision(db as FirestoreDb, shopId);
   const result = db.prepare("SELECT catalog_revision FROM shops WHERE id = ?").get(shopId) as { catalog_revision: number };
   return result.catalog_revision;
 }
 
-export function incrementCatalogRevision(db: Db, shopId = DEFAULT_SHOP_ID): number {
+export function incrementCatalogRevision(db: FirestoreDb, shopId?: string): Promise<number>;
+export function incrementCatalogRevision(db: SqliteDb, shopId?: string): number;
+export function incrementCatalogRevision(db: Db, shopId?: string): number | Promise<number>;
+export function incrementCatalogRevision(db: Db, shopId = DEFAULT_SHOP_ID): number | Promise<number> {
+  if ((db as FirestoreDb).firestoreBrand) return incrementFirestoreCatalogRevision(db as FirestoreDb, shopId);
   db.prepare("UPDATE shops SET catalog_revision = catalog_revision + 1, updated_at = ? WHERE id = ?")
     .run(new Date().toISOString(), shopId);
-  return getCatalogRevision(db, shopId);
+  return getCatalogRevision(db as SqliteDb, shopId);
 }
 
 export function createTransaction<T>(db: Db, work: () => T): () => T {

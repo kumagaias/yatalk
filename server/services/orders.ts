@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Db } from "../database.js";
+import type { Db, FirestoreDb, SqliteDb } from "../database.js";
 import { ApiError, ProviderError } from "../errors.js";
 import { parseAmountToMinor } from "../../shared/currency.js";
 import { DEFAULT_SHOP_ID, getCatalogRevision, incrementCatalogRevision } from "../database.js";
@@ -7,6 +7,7 @@ import { readCart } from "../inventory.js";
 import { logStage } from "../logging.js";
 import {
   beginRefund, cancelOrder, claimCaptureCheck, completeCapture, completeRefund, failOrderCreate, findOrder,
+  findOrderByCaptureId, findOrderByClientRequest, findOrderByPaypalOrderId,
   listOrderLines, markCaptureUnknown, normalizeExpiredOrders, resolveNoCapture,
   refundRejected, reserveOrder, setCreatedOrder, transitionCollected,
   type OrderRow,
@@ -23,8 +24,8 @@ function orderReceipt(order: OrderRow) {
     pickupCode: order.state === "paid" || order.state === "collected" ? order.pickup_code : null };
 }
 
-function paypalItems(db: Db, order: OrderRow) {
-  return listOrderLines(db, order.id, order.shop_id).map((line) => ({ id: line.product_id, name: line.display_name,
+async function paypalItems(db: Db, order: OrderRow) {
+  return (await listOrderLines(db, order.id, order.shop_id)).map((line) => ({ id: line.product_id, name: line.display_name,
     quantity: line.quantity, unitAmount: line.unit_price_minor }));
 }
 
@@ -62,9 +63,10 @@ export async function createOrRetryOrder(db: Db, paypal: PayPalProvider, input: 
   sessionHash: string; cartVersion: number; catalogRevision: number; clientRequestKey: string; shopId?: string;
 }): Promise<{ status: number; body: Record<string, unknown> }> {
   const shopId = input.shopId ?? DEFAULT_SHOP_ID;
-  normalizeExpiredOrders(db, shopId);
-  const existing = db.prepare(`SELECT * FROM orders WHERE shop_id = ? AND session_hash = ? AND client_request_key = ?`)
-    .get(shopId, input.sessionHash, input.clientRequestKey) as OrderRow | undefined;
+  await normalizeExpiredOrders(db, shopId);
+  const existing = db.backend === "firestore"
+    ? await findOrderByClientRequest(db, input.sessionHash, input.clientRequestKey, shopId)
+    : findOrderByClientRequest(db as SqliteDb, input.sessionHash, input.clientRequestKey, shopId);
   let order: OrderRow;
   let isNew = false;
   if (existing) {
@@ -81,38 +83,39 @@ export async function createOrRetryOrder(db: Db, paypal: PayPalProvider, input: 
       return { status: 202, body: { orderId: order.id, state: "create_unknown" } };
     }
     if (order.state === "create_unknown" && Date.parse(order.expires_at) <= Date.now()) {
-      normalizeExpiredOrders(db, shopId);
-      return { status: 409, body: { ...orderReceipt(findOrder(db, order.id, shopId)!), code: "order_expired" } };
+      await normalizeExpiredOrders(db, shopId);
+      return { status: 409, body: { ...orderReceipt((await findOrder(db, order.id, shopId))!), code: "order_expired" } };
     }
     if (order.state !== "creating_payment" && order.state !== "create_unknown") {
       throw new ApiError(409, "order_state_conflict", "This order cannot be retried.");
     }
   } else {
-    if (input.catalogRevision !== getCatalogRevision(db, shopId)) {
-      throw new ApiError(409, "cart_changed", "The menu changed. Review the current cart.", { cart: readCart(db, input.sessionHash, shopId) });
+    if (input.catalogRevision !== await getCatalogRevision(db, shopId)) {
+      throw new ApiError(409, "cart_changed", "The menu changed. Review the current cart.", { cart: await readCart(db, input.sessionHash, shopId) });
     }
-    const reserved = reserveOrder(db, { ...input, shopId });
+    const reserved = await reserveOrder(db, { ...input, shopId });
     order = reserved.order;
     isNew = true;
+    if (createInFlight.has(order.id)) return { status: 202, body: { orderId: order.id, state: "creating_payment" } };
   }
 
   createInFlight.add(order.id);
   try {
     const created = await paypal.createOrder({
       localOrderId: order.id, currency: order.currency, totalMinor: order.total_minor,
-      items: paypalItems(db, order), requestId: order.paypal_create_request_id,
+      items: await paypalItems(db, order), requestId: order.paypal_create_request_id,
     });
     if (!created.id || created.status !== "CREATED" && created.status !== "PAYER_ACTION_REQUIRED") {
-      failOrderCreate(db, order.id, true, shopId);
+      await failOrderCreate(db, order.id, true, shopId);
       return { status: 202, body: { orderId: order.id, state: "create_unknown" } };
     }
-    const saved = setCreatedOrder(db, order.id, created.id, shopId);
+    const saved = await setCreatedOrder(db, order.id, created.id, shopId);
     return { status: isNew ? 201 : 200, body: { orderId: saved.id, paypalOrderId: created.id,
       expiresAt: saved.expires_at, totalMinor: saved.total_minor, currency: saved.currency } };
   } catch (error) {
     if (error instanceof ApiError) throw error;
     const unknown = !(error instanceof ProviderError) || !error.definite;
-    failOrderCreate(db, order.id, unknown, shopId);
+    await failOrderCreate(db, order.id, unknown, shopId);
     if (unknown) return { status: 202, body: { orderId: order.id, state: "create_unknown" } };
     throw providerMessage(error);
   } finally {
@@ -121,14 +124,14 @@ export async function createOrRetryOrder(db: Db, paypal: PayPalProvider, input: 
 }
 
 export async function captureOrder(db: Db, paypal: PayPalProvider, sessionHash: string, orderId: string, shopId = DEFAULT_SHOP_ID, requestId = "missing"): Promise<Record<string, unknown>> {
-  normalizeExpiredOrders(db, shopId);
-  const order = findOrder(db, orderId, shopId);
+  await normalizeExpiredOrders(db, shopId);
+  const order = await findOrder(db, orderId, shopId);
   if (!order || order.session_hash !== sessionHash) throw new ApiError(404, "order_not_found", "Order was not found.");
   if (order.state === "paid" || order.state === "collected") return orderReceipt(order);
   if (order.state === "expired") throw new ApiError(409, "order_expired", "This checkout has expired. Start a new order.");
   if (order.state !== "pending_payment" && order.state !== "capture_unknown") throw new ApiError(409, "order_state_conflict", "This order cannot be captured in its current state.");
   if (order.state === "pending_payment" && Date.parse(order.expires_at) <= Date.now()) {
-    normalizeExpiredOrders(db, shopId);
+    await normalizeExpiredOrders(db, shopId);
     throw new ApiError(409, "order_expired", "This checkout has expired. Start a new order.");
   }
   if (captureInFlight.has(order.id)) {
@@ -136,7 +139,7 @@ export async function captureOrder(db: Db, paypal: PayPalProvider, sessionHash: 
   }
   captureInFlight.add(order.id);
   try {
-    claimCaptureCheck(db, order.id, shopId);
+    await claimCaptureCheck(db, order.id, shopId);
     let observed;
     logStage(requestId, "paypal_order_status", "start");
     try {
@@ -145,36 +148,36 @@ export async function captureOrder(db: Db, paypal: PayPalProvider, sessionHash: 
     }
     catch (error) {
       logStage(requestId, "paypal_order_status", "failure", error);
-      markCaptureUnknown(db, order.id, shopId);
+      await markCaptureUnknown(db, order.id, shopId);
       throw new ApiError(202, "capture_unknown", "Payment status is being checked. Retry to refresh it.");
     }
     if (observed.orderId !== order.paypal_order_id || observed.referenceId !== order.id || observed.customId !== order.id ||
         observed.currency !== order.currency || observed.amountMinor !== order.total_minor) {
-      markCaptureUnknown(db, order.id, shopId);
+      await markCaptureUnknown(db, order.id, shopId);
       throw new ApiError(502, "payment_verification_failed", "Payment details could not be verified. Contact the organizer.");
     }
     if (observed.orderStatus === "COMPLETED" && observed.captureStatus === "COMPLETED" && observed.captureId) {
       const captureId = ensureCaptureMatches(order, observed, requestId);
-      return orderReceipt(completeCapture(db, order.id, captureId, shopId));
+      return orderReceipt(await completeCapture(db, order.id, captureId, shopId));
     }
     if (observed.orderStatus !== "APPROVED") {
       if (observed.orderStatus !== "COMPLETED") {
-        const resolved = resolveNoCapture(db, order.id, shopId);
+        const resolved = await resolveNoCapture(db, order.id, shopId);
         if (resolved === "expired") throw new ApiError(409, "order_expired", "This checkout has expired. Start a new order.");
       }
       throw new ApiError(409, "payment_not_approved", "Approve this order in PayPal before retrying capture.");
     }
 
     try {
-      markCaptureUnknown(db, order.id, shopId);
+      await markCaptureUnknown(db, order.id, shopId);
       logStage(requestId, "paypal_capture_request", "start");
       const captured = await paypal.captureOrder(order.paypal_order_id!, order.paypal_capture_request_id);
       logStage(requestId, "paypal_capture_request", "success");
       const captureId = ensureCaptureMatches(order, captured, requestId);
-      return orderReceipt(completeCapture(db, order.id, captureId, shopId));
+      return orderReceipt(await completeCapture(db, order.id, captureId, shopId));
     } catch (error) {
       logStage(requestId, "paypal_capture_request", "failure", error);
-      markCaptureUnknown(db, order.id, shopId);
+      await markCaptureUnknown(db, order.id, shopId);
       if (error instanceof ApiError) throw error;
       throw new ApiError(202, "capture_unknown", "Payment status is being checked. Retry to refresh it.");
     }
@@ -183,22 +186,22 @@ export async function captureOrder(db: Db, paypal: PayPalProvider, sessionHash: 
   }
 }
 
-export function readOwnedOrder(db: Db, sessionHash: string, orderId: string, shopId = DEFAULT_SHOP_ID): Record<string, unknown> {
-  const order = findOrder(db, orderId, shopId);
+export async function readOwnedOrder(db: Db, sessionHash: string, orderId: string, shopId = DEFAULT_SHOP_ID): Promise<Record<string, unknown>> {
+  const order = await findOrder(db, orderId, shopId);
   if (!order || order.session_hash !== sessionHash) throw new ApiError(404, "order_not_found", "Order was not found.");
   return orderReceipt(order);
 }
 
-export function cancelOwnedOrder(db: Db, sessionHash: string, orderId: string, shopId = DEFAULT_SHOP_ID): Record<string, unknown> {
-  const order = findOrder(db, orderId, shopId);
+export async function cancelOwnedOrder(db: Db, sessionHash: string, orderId: string, shopId = DEFAULT_SHOP_ID): Promise<Record<string, unknown>> {
+  const order = await findOrder(db, orderId, shopId);
   if (!order || order.session_hash !== sessionHash) throw new ApiError(404, "order_not_found", "Order was not found.");
-  return orderReceipt(cancelOrder(db, orderId, shopId));
+  return orderReceipt(await cancelOrder(db, orderId, shopId));
 }
 
 export async function refundOrder(db: Db, paypal: PayPalProvider, orderId: string, restock: boolean, shopId = DEFAULT_SHOP_ID, requestId = "missing"): Promise<{ status: number; body: Record<string, unknown> }> {
-  const original = findOrder(db, orderId, shopId);
+  const original = await findOrder(db, orderId, shopId);
   if (!original) throw new ApiError(404, "order_not_found", "Order was not found.");
-  const order = beginRefund(db, orderId, restock, shopId);
+  const order = await beginRefund(db, orderId, restock, shopId);
   if (order.state === "refunded") return { status: 200, body: { state: order.state, restocked: !!order.restock_applied_at } };
   if (refundInFlight.has(orderId)) return { status: 202, body: { state: "refund_unknown" } };
   refundInFlight.add(orderId);
@@ -209,13 +212,13 @@ export async function refundOrder(db: Db, paypal: PayPalProvider, orderId: strin
       logStage(requestId, "paypal_refund_request", "failure");
       return { status: 202, body: { state: "refund_unknown" } };
     }
-    const saved = completeRefund(db, orderId, result.refundId, shopId);
+    const saved = await completeRefund(db, orderId, result.refundId, shopId);
     logStage(requestId, "paypal_refund_request", "success");
     return { status: 200, body: { state: saved.state, restocked: !!saved.restock_applied_at } };
   } catch (error) {
     logStage(requestId, "paypal_refund_request", "failure", error);
     if (error instanceof ProviderError && error.definite) {
-      refundRejected(db, orderId, shopId);
+      await refundRejected(db, orderId, shopId);
       throw providerMessage(error);
     }
     return { status: 202, body: { state: "refund_unknown" } };
@@ -239,9 +242,10 @@ export async function processPaypalWebhook(db: Db, paypal: PayPalProvider, heade
   if (!(await paypal.verifyWebhook(headers, event))) throw new ApiError(400, "webhook_signature_invalid", "Webhook signature verification failed.");
   const root = webhookObject(event);
   if (typeof root.id !== "string" || typeof root.event_type !== "string") throw new ApiError(400, "webhook_invalid", "Webhook event is invalid.");
+  const resource = nested(root.resource);
+  if (db.backend === "firestore") return processFirestoreWebhook(db, root.id, root.event_type, resource);
   const existed = db.prepare("SELECT 1 FROM webhook_events WHERE id = ?").get(root.id);
   if (existed) return "duplicate";
-  const resource = nested(root.resource);
   const now = new Date().toISOString();
   const transaction = db.transaction(() => {
     if (root.event_type === "PAYMENT.CAPTURE.COMPLETED") {
@@ -301,12 +305,73 @@ export async function processPaypalWebhook(db: Db, paypal: PayPalProvider, heade
   return "processed";
 }
 
-export function collectOrder(db: Db, orderId: string, shopId = DEFAULT_SHOP_ID): Record<string, unknown> {
-  return { state: transitionCollected(db, orderId, shopId).state };
+async function processFirestoreWebhook(db: FirestoreDb, eventId: string, eventType: string, resource: Record<string, unknown>): Promise<"processed" | "duplicate"> {
+  const alreadyProcessed = await db.firestoreStore.get("webhookEvents", eventId);
+  if (alreadyProcessed) return "duplicate";
+  if (eventType === "PAYMENT.CAPTURE.COMPLETED") {
+    const related = nested(nested(resource.supplementary_data).related_ids);
+    const paypalOrderId = typeof related.order_id === "string" ? related.order_id : "";
+    const order = paypalOrderId ? await findOrderByPaypalOrderId(db, paypalOrderId) : undefined;
+    if (order) {
+      const captureId = typeof resource.id === "string" ? resource.id : "";
+      const amount = nested(resource.amount);
+      if (resource.status !== "COMPLETED" || !captureId || amount.currency_code !== order.currency ||
+          typeof amount.value !== "string" || parseAmountToMinor(amount.value, order.currency) !== order.total_minor) {
+        throw new ApiError(500, "webhook_reconciliation_failed", "Verified event did not match its local order.");
+      }
+      if (order.state === "pending_payment" || order.state === "capture_unknown") {
+        await completeCapture(db, order.id, captureId, order.shop_id);
+      } else if (["paid", "collected", "refund_unknown", "refunded"].includes(order.state)) {
+        if (order.paypal_capture_id !== captureId) {
+          throw new ApiError(500, "webhook_reconciliation_failed", "Verified event did not match its local order.");
+        }
+      } else {
+        throw new ApiError(500, "webhook_reconciliation_failed", "Verified event did not match its local order.");
+      }
+    }
+  } else if (eventType === "PAYMENT.CAPTURE.REFUNDED") {
+    const captureId = refundCaptureId(resource);
+    const invoiceId = typeof resource.invoice_id === "string" ? resource.invoice_id : "";
+    const customId = typeof resource.custom_id === "string" ? resource.custom_id : "";
+    if (invoiceId && customId && invoiceId !== customId) {
+      throw new ApiError(500, "webhook_reconciliation_failed", "Verified event did not match its local refund.");
+    }
+    const localOrderId = invoiceId || customId;
+    const [byCapture, byReference] = await Promise.all([
+      captureId ? findOrderByCaptureId(db, captureId) : Promise.resolve(undefined),
+      localOrderId ? findOrder(db, localOrderId) : Promise.resolve(undefined),
+    ]);
+    if (byCapture && byReference && byCapture.id !== byReference.id) {
+      throw new ApiError(500, "webhook_reconciliation_failed", "Verified event did not match its local refund.");
+    }
+    const order = byCapture ?? byReference;
+    if (order && order.state !== "refunded") {
+      const amount = nested(resource.amount);
+      if (order.state !== "refund_unknown" || !captureId || order.paypal_capture_id !== captureId ||
+          (localOrderId && order.id !== localOrderId) || resource.status !== "COMPLETED" ||
+          amount.currency_code !== order.currency || typeof amount.value !== "string" ||
+          parseAmountToMinor(amount.value, order.currency) !== order.total_minor ||
+          typeof resource.id !== "string" || !resource.id) {
+        throw new ApiError(500, "webhook_reconciliation_failed", "Verified event did not match its local refund.");
+      }
+      await completeRefund(db, order.id, resource.id, order.shop_id);
+    }
+  }
+  try {
+    await db.firestoreStore.create("webhookEvents", eventId, { eventType, processedAt: new Date().toISOString() });
+  } catch (error) {
+    if (await db.firestoreStore.get("webhookEvents", eventId)) return "duplicate";
+    throw error;
+  }
+  return "processed";
 }
 
-export function adminOrder(db: Db, orderId: string, shopId = DEFAULT_SHOP_ID) {
-  const order = findOrder(db, orderId, shopId);
+export async function collectOrder(db: Db, orderId: string, shopId = DEFAULT_SHOP_ID): Promise<Record<string, unknown>> {
+  return { state: (await transitionCollected(db, orderId, shopId)).state };
+}
+
+export async function adminOrder(db: Db, orderId: string, shopId = DEFAULT_SHOP_ID): Promise<Record<string, unknown>> {
+  const order = await findOrder(db, orderId, shopId);
   if (!order) throw new ApiError(404, "order_not_found", "Order was not found.");
   return { orderId: order.id, state: order.state, totalMinor: order.total_minor,
     currency: order.currency,
@@ -316,9 +381,16 @@ export function adminOrder(db: Db, orderId: string, shopId = DEFAULT_SHOP_ID) {
     refundRestockRequested: order.refund_restock_requested === null ? null : order.refund_restock_requested === 1 };
 }
 
-export function audit(db: Db, action: string, targetId: string, metadata: unknown = {}, shopId = DEFAULT_SHOP_ID, actorUserId: string | null = null): void {
+export async function audit(db: Db, action: string, targetId: string, metadata: unknown = {}, shopId = DEFAULT_SHOP_ID, actorUserId: string | null = null): Promise<void> {
+  if (db.backend === "firestore") {
+    const id = randomUUID();
+    await db.firestoreStore.create("adminAuditLogs", id, {
+      id, shopId, actorUserId, action, targetId, metadata: JSON.stringify(metadata), createdAt: new Date().toISOString(),
+    });
+    return;
+  }
   db.prepare("INSERT INTO admin_audit_log(id, shop_id, actor_user_id, action, target_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(randomUUID(), shopId, actorUserId, action, targetId, JSON.stringify(metadata), new Date().toISOString());
 }
 
-export function catalogChanged(db: Db, shopId = DEFAULT_SHOP_ID): number { return incrementCatalogRevision(db, shopId); }
+export async function catalogChanged(db: Db, shopId = DEFAULT_SHOP_ID): Promise<number> { return incrementCatalogRevision(db, shopId); }

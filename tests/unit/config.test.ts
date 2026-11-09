@@ -7,12 +7,16 @@ test("runtime configuration fixes the demo to PayPal sandbox and JPY", () => {
   const config = loadConfig(base);
   assert.equal(config.paypalMode, "sandbox");
   assert.equal(config.currency, "JPY");
+  assert.equal(config.databaseBackend, "sqlite");
   assert.equal(config.googleCloudProject, null);
   assert.equal(config.googleCloudLocation, "global");
   assert.equal(config.geminiModel, "gemini-3.5-flash-lite");
   assert.throws(() => loadConfig({ ...base, GOOGLE_CLOUD_PROJECT: "bad/project" }), /GOOGLE_CLOUD_PROJECT is invalid/);
   assert.equal(loadConfig({ ...base, GOOGLE_CLOUD_PROJECT: "s-yatalk", GOOGLE_CLOUD_LOCATION: "global" }).googleCloudProject, "s-yatalk");
   assert.throws(() => loadConfig({ ...base, PAYPAL_MODE: "live" }), /PAYPAL_MODE must be sandbox/);
+  assert.equal(loadConfig({ ...base, DATABASE_BACKEND: "firestore" }).databaseBackend, "firestore");
+  assert.throws(() => loadConfig({ ...base, DATABASE_BACKEND: "mysql" }), /DATABASE_BACKEND must be sqlite or firestore/);
+  assert.equal(loadConfig({ NODE_ENV: "production", APP_ORIGIN: "https://yatalk.kumagaias.com", GOOGLE_CLOUD_PROJECT: "s-yatalk" }).databaseBackend, "firestore");
   assert.equal(loadConfig({ ...base, PAYPAL_CURRENCY: "USD" }).currency, "JPY");
   assert.throws(() => loadConfig({ ...base, ADMIN_SESSION_SECRET: "too-short" }), /at least 32 bytes/);
   assert.throws(() => loadConfig({ ...base, ADMIN_ACCESS_CODE: "weak-code" }), /at least 16 characters/);

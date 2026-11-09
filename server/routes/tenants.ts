@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import type { AppConfig } from "../config.js";
-import { createShopRecord, getShopByOwnerAndSlug, getShopBySlug, type Db, type Shop } from "../database.js";
+import { createShopRecord, getShopByOwnerAndSlug, getShopBySlug, type Db, type FirestoreDb, type Shop } from "../database.js";
 import { ApiError } from "../errors.js";
 import { logStage } from "../logging.js";
 import { clearOwnerSession, hashOwnerPassword, ownerFromRequest, requireOwner, startOwnerSession, verifyOwnerPassword } from "../owner-auth.js";
@@ -10,6 +10,7 @@ import type { CurrencyCode } from "../../shared/currency.js";
 import { requireExactOrigin } from "../security.js";
 import { parseBody, requireEmptyBody, requireJson } from "../http.js";
 import { addShopRequestSchema, ownerLoginRequestSchema, ownerRegistrationRequestSchema, ownerSlugSchema, shopSlugSchema } from "../../shared/schemas.js";
+import { createOwnerAccount, createOwnedShop, getOwnerByEmail, isOwnerSlugAvailable, listOwnerShops } from "../firestore-owners.js";
 
 const dummyPasswordHash = `scrypt$16384$8$1$${Buffer.alloc(16).toString("base64url")}$${Buffer.alloc(64).toString("base64url")}`;
 
@@ -17,9 +18,18 @@ function publicShop(shop: Shop) {
   return { slug: shop.slug, name: shop.name, status: shop.status, ownerSlug: shop.ownerSlug, currency: shop.currency };
 }
 
-function createShopForOwner(db: Db, owner: { id: string; currency: CurrencyCode }, slug: string, name: string): Shop {
+async function createShopForOwner(db: Db, owner: { id: string; currency: CurrencyCode }, slug: string, name: string): Promise<Shop> {
+  if ((db as FirestoreDb).firestoreBrand) {
+    try { return await createOwnedShop(db as FirestoreDb, owner, slug, name); }
+    catch (error) {
+      if (error instanceof Error && error.message.includes("shops.owner_user_id, shops.slug")) {
+        throw new ApiError(409, "shop_slug_taken", "That shop address is already in use for this owner.");
+      }
+      throw error;
+    }
+  }
   const transaction = db.transaction(() => {
-    const shop = createShopRecord(db, { slug, name, ownerUserId: owner.id, currency: owner.currency });
+    const shop = createShopRecord(db as import("../database.js").SqliteDb, { slug, name, ownerUserId: owner.id, currency: owner.currency });
     db.prepare("INSERT INTO shop_memberships(shop_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)")
       .run(shop.id, owner.id, new Date().toISOString());
     return shop;
@@ -46,21 +56,23 @@ export function tenantRoutes(db: Db, config: AppConfig): Router {
   });
   const addShopPerOwner = createRateLimit(6, 60 * 60_000, (request) => request.ownerUserId ?? ipKey(request));
 
-  router.get("/owners/slug-availability/:slug", slugCheckPerIp, (request, response) => {
+  router.get("/owners/slug-availability/:slug", slugCheckPerIp, async (request, response) => {
     const parsed = ownerSlugSchema.safeParse(request.params.slug);
-    const found = parsed.success && !!db.prepare("SELECT 1 FROM users WHERE owner_slug = ?").get(parsed.data);
-    response.json({ available: parsed.success && !found });
+    const available = parsed.success && ((db as FirestoreDb).firestoreBrand
+      ? await isOwnerSlugAvailable(db as FirestoreDb, parsed.data)
+      : !db.prepare("SELECT 1 FROM users WHERE owner_slug = ?").get(parsed.data));
+    response.json({ available });
   });
 
-  router.get("/owners/:ownerSlug/shops/slug-availability/:slug", slugCheckPerIp, (request, response) => {
+  router.get("/owners/:ownerSlug/shops/slug-availability/:slug", slugCheckPerIp, async (request, response) => {
     const owner = ownerSlugSchema.safeParse(request.params.ownerSlug);
     const slug = shopSlugSchema.safeParse(request.params.slug);
-    response.json({ available: owner.success && slug.success && !getShopByOwnerAndSlug(db, owner.data, slug.data) });
+    response.json({ available: owner.success && slug.success && !await getShopByOwnerAndSlug(db, owner.data, slug.data) });
   });
 
-  router.get("/shops/slug-availability/:slug", slugCheckPerIp, (request, response) => {
+  router.get("/shops/slug-availability/:slug", slugCheckPerIp, async (request, response) => {
     const parsed = shopSlugSchema.safeParse(request.params.slug);
-    response.json({ available: parsed.success && !getShopBySlug(db, parsed.data) });
+    response.json({ available: parsed.success && !await getShopBySlug(db, parsed.data) });
   });
 
   router.post("/owners", originOnly, signupPerIp, async (request, response) => {
@@ -76,10 +88,15 @@ export function tenantRoutes(db: Db, config: AppConfig): Router {
     const now = new Date().toISOString();
     const userId = randomUUID();
     try {
-      db.prepare(`INSERT INTO users(id, email, display_name, owner_slug, default_currency, password_hash, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(userId, input.email, input.displayName, input.ownerSlug, input.defaultCurrency, passwordHash, now);
-      startOwnerSession(db, response, config, userId);
+      if ((db as FirestoreDb).firestoreBrand) {
+        await createOwnerAccount(db as FirestoreDb, { id: userId, email: input.email, displayName: input.displayName,
+          ownerSlug: input.ownerSlug, defaultCurrency: input.defaultCurrency, passwordHash, createdAt: now });
+      } else {
+        db.prepare(`INSERT INTO users(id, email, display_name, owner_slug, default_currency, password_hash, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`)
+          .run(userId, input.email, input.displayName, input.ownerSlug, input.defaultCurrency, passwordHash, now);
+      }
+      await startOwnerSession(db, response, config, userId);
       logStage(request.requestId, "owner_registration", "success");
       response.status(201).json({ owner: { displayName: input.displayName, ownerSlug: input.ownerSlug, defaultCurrency: input.defaultCurrency }, nextUrl: "/dashboard/shops/new" });
     } catch (error) {
@@ -95,11 +112,18 @@ export function tenantRoutes(db: Db, config: AppConfig): Router {
     const input = parseBody(ownerLoginRequestSchema, request);
     logStage(request.requestId, "owner_sign_in", "start");
     try {
-      const user = db.prepare("SELECT id, password_hash FROM users WHERE email = ? COLLATE NOCASE")
-        .get(input.email) as { id: string; password_hash: string } | undefined;
-      const valid = await verifyOwnerPassword(input.password, user?.password_hash ?? dummyPasswordHash);
+      let user: { id: string; passwordHash: string } | undefined;
+      if ((db as FirestoreDb).firestoreBrand) {
+        const account = await getOwnerByEmail(db as FirestoreDb, input.email);
+        user = account ? { id: account.id, passwordHash: account.passwordHash } : undefined;
+      } else {
+        const account = db.prepare("SELECT id, password_hash FROM users WHERE email = ? COLLATE NOCASE")
+          .get(input.email) as { id: string; password_hash: string } | undefined;
+        user = account ? { id: account.id, passwordHash: account.password_hash } : undefined;
+      }
+      const valid = await verifyOwnerPassword(input.password, user?.passwordHash ?? dummyPasswordHash);
       if (!user || !valid) throw new ApiError(401, "owner_credentials_invalid", "Email or password is incorrect.");
-      startOwnerSession(db, response, config, user.id);
+      await startOwnerSession(db, response, config, user.id);
       logStage(request.requestId, "owner_sign_in", "success");
       response.status(204).end();
     } catch (error) {
@@ -108,20 +132,22 @@ export function tenantRoutes(db: Db, config: AppConfig): Router {
     }
   });
 
-  router.get("/auth/session", (request, response) => {
-    const owner = ownerFromRequest(db, request);
+  router.get("/auth/session", async (request, response) => {
+    const owner = await ownerFromRequest(db, request);
     response.json(owner ? { authenticated: true, email: owner.email, displayName: owner.displayName,
       ownerSlug: owner.ownerSlug, defaultCurrency: owner.defaultCurrency } : { authenticated: false });
   });
 
-  router.delete("/auth/session", originOnly, (request, response) => {
+  router.delete("/auth/session", originOnly, async (request, response) => {
     requireEmptyBody(request);
-    clearOwnerSession(db, request, response, config);
+    await clearOwnerSession(db, request, response, config);
     response.status(204).end();
   });
 
-  router.get("/dashboard/shops", ownerOnly, (request, response) => {
-    const shops = db.prepare(`SELECT shops.id, shops.slug, shops.name, shops.status, shops.currency, users.owner_slug AS ownerSlug
+  router.get("/dashboard/shops", ownerOnly, async (request, response) => {
+    const shops = (db as FirestoreDb).firestoreBrand
+      ? await listOwnerShops(db as FirestoreDb, request.ownerUserId!)
+      : db.prepare(`SELECT shops.id, shops.slug, shops.name, shops.status, shops.currency, users.owner_slug AS ownerSlug
       FROM shops JOIN shop_memberships ON shop_memberships.shop_id = shops.id
       JOIN users ON users.id = shop_memberships.user_id
       WHERE shop_memberships.user_id = ? ORDER BY shops.created_at`)
@@ -129,11 +155,11 @@ export function tenantRoutes(db: Db, config: AppConfig): Router {
     response.json({ shops: shops.map(publicShop) });
   });
 
-  router.post("/dashboard/shops", originOnly, ownerOnly, addShopPerOwner, (request, response) => {
+  router.post("/dashboard/shops", originOnly, ownerOnly, addShopPerOwner, async (request, response) => {
     requireJson(request);
     const input = parseBody(addShopRequestSchema, request);
     if (!request.ownerUserId || !request.ownerCurrency) throw new ApiError(409, "owner_setup_incomplete", "Sign in again to finish setting up your owner account.");
-    const shop = createShopForOwner(db, { id: request.ownerUserId, currency: request.ownerCurrency }, input.slug, input.name);
+    const shop = await createShopForOwner(db, { id: request.ownerUserId, currency: request.ownerCurrency }, input.slug, input.name);
     response.status(201).json({ shop: publicShop(shop), dashboardUrl: `/dashboard/${shop.ownerSlug}/${shop.slug}` });
   });
 

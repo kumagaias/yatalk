@@ -5,7 +5,7 @@ import { PayPalClient } from "../../server/services/paypal.js";
 
 const config: AppConfig = {
   nodeEnv: "test", port: 4000, appOrigin: "http://127.0.0.1:5173",
-  eventName: "Little Harbor Market", eventTimeZone: "Asia/Tokyo", currency: "JPY", databasePath: ":memory:",
+  eventName: "Little Harbor Market", eventTimeZone: "Asia/Tokyo", currency: "JPY", databaseBackend: "sqlite", databasePath: ":memory:",
   paypalMode: "sandbox", paypalClientId: "sandbox-client", paypalClientSecret: "sandbox-secret", paypalWebhookId: "webhook-id",
   googleCloudProject: null, googleCloudLocation: "global", geminiModel: "test-model",
   adminAccessCode: null, adminSessionSecret: null,

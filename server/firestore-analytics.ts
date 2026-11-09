@@ -1,0 +1,75 @@
+import type { FirestoreDb } from "./database.js";
+import { DEFAULT_SHOP_ID } from "./database.js";
+import type { FirestoreDocument } from "./firestore-store.js";
+import { listProducts } from "./inventory.js";
+import type { OrderRow } from "./order-state.js";
+import { eventDayBounds } from "./analytics.js";
+
+type ShopDoc = FirestoreDocument & { currency: string };
+type LineDoc = FirestoreDocument & { product_id: string; display_name: string; quantity: number };
+type OrderDoc = FirestoreDocument & {
+  id: string; shopId: string; state: OrderRow["state"]; totalMinor: number; capturedAt: string | null;
+  createdAt: string; expiresAt: string; pickupCode: string | null; currency: string; items: LineDoc[];
+};
+
+function wallClockParts(date: Date, timeZone: string): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, Number(value)]));
+  return { year: values.year!, month: values.month!, day: values.day! };
+}
+
+export async function organizerFacts(db: FirestoreDb, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID) {
+  const bounds = eventDayBounds(now, timeZone);
+  const localDay = wallClockParts(now, timeZone);
+  const [shop, orders, products] = await Promise.all([
+    db.firestoreStore.get<ShopDoc>("shops", shopId),
+    db.firestoreStore.query<OrderDoc>("orders", [
+      { field: "shopId", op: "==", value: shopId },
+      { field: "capturedAt", op: ">=", value: bounds.start },
+      { field: "capturedAt", op: "<", value: bounds.end },
+    ]),
+    listProducts(db, shopId),
+  ]);
+  if (!shop) throw new Error("Shop was not found");
+  const captured = orders.filter((order) => order.capturedAt && order.capturedAt >= bounds.start && order.capturedAt < bounds.end &&
+    ["paid", "collected", "refund_unknown", "refunded"].includes(order.state));
+  const grossCapturedMinor = captured.reduce((sum, order) => sum + order.totalMinor, 0);
+  const netCapturedMinor = captured.filter((order) => order.state !== "refunded").reduce((sum, order) => sum + order.totalMinor, 0);
+  const units = new Map<string, { id: string; name: string; units_sold: number }>();
+  for (const order of captured.filter((item) => ["paid", "collected", "refund_unknown"].includes(item.state))) {
+    for (const line of order.items ?? []) {
+      const sold = units.get(line.product_id) ?? { id: line.product_id, name: line.display_name, units_sold: 0 };
+      sold.units_sold += line.quantity;
+      units.set(line.product_id, sold);
+    }
+  }
+  const lowStockItems = products.filter((product) => product.available <= 5);
+  return {
+    date: `${localDay.year}-${String(localDay.month).padStart(2, "0")}-${String(localDay.day).padStart(2, "0")}`,
+    timeZone, currency: shop.currency, grossCapturedMinor, netCapturedMinor,
+    netOrderCount: captured.filter((order) => ["paid", "collected", "refund_unknown"].includes(order.state)).length,
+    refundedOrderCount: captured.filter((order) => order.state === "refunded").length,
+    lowStockCount: lowStockItems.length,
+    lowStockItems: lowStockItems.map(({ id, name, stockOnHand, reserved, available, priceMinor }) => ({ id, name, stockOnHand, reserved, available, priceMinor })),
+    products: products.map(({ id, name, stockOnHand, reserved, available, priceMinor }) => ({ id, name, stockOnHand, reserved, available, priceMinor })),
+    unitsSold: [...units.values()].sort((left, right) => right.units_sold - left.units_sold || left.name.localeCompare(right.name)),
+  };
+}
+
+export async function organizerSummary(db: FirestoreDb, timeZone: string, shopId = DEFAULT_SHOP_ID) {
+  const [facts, rows] = await Promise.all([
+    organizerFacts(db, timeZone, new Date(), shopId),
+    db.firestoreStore.query<OrderDoc>("orders", [{ field: "shopId", op: "==", value: shopId }], { field: "createdAt", direction: "desc" }, 50),
+  ]);
+  const orders = rows.map((order) => ({
+    orderId: order.id, state: order.state, totalMinor: order.totalMinor, currency: order.currency,
+    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickupCode } : {}),
+    createdAt: order.createdAt, items: (order.items ?? []).map((item) => ({ name: item.display_name, quantity: item.quantity })),
+  }));
+  return {
+    metrics: { grossSalesMinor: facts.grossCapturedMinor, netSalesMinor: facts.netCapturedMinor,
+      paidOrderCount: facts.netOrderCount, lowStockCount: facts.lowStockCount },
+    orders,
+    products: (await listProducts(db, shopId, false)).map(({ active: _active, ...product }) => product),
+  };
+}

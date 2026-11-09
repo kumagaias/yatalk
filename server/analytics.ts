@@ -1,7 +1,8 @@
-import type { Db } from "./database.js";
+import type { Db, FirestoreDb, SqliteDb } from "./database.js";
 import { DEFAULT_SHOP_ID } from "./database.js";
 import { listProducts } from "./inventory.js";
 import { listOrderLines, type OrderRow } from "./order-state.js";
+import * as firestoreAnalytics from "./firestore-analytics.js";
 
 function wallClockParts(date: Date, timeZone: string): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(date);
@@ -29,7 +30,15 @@ export function eventDayBounds(now: Date, timeZone: string): { start: string; en
   };
 }
 
+export function organizerFacts(db: FirestoreDb, timeZone: string, now?: Date, shopId?: string): ReturnType<typeof firestoreAnalytics.organizerFacts>;
+export function organizerFacts(db: SqliteDb, timeZone: string, now?: Date, shopId?: string): ReturnType<typeof organizerFactsSqlite>;
+export function organizerFacts(db: Db, timeZone: string, now?: Date, shopId?: string): ReturnType<typeof organizerFactsSqlite> | ReturnType<typeof firestoreAnalytics.organizerFacts>;
 export function organizerFacts(db: Db, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID) {
+  if ((db as FirestoreDb).firestoreBrand) return firestoreAnalytics.organizerFacts(db as FirestoreDb, timeZone, now, shopId);
+  return organizerFactsSqlite(db as SqliteDb, timeZone, now, shopId);
+}
+
+function organizerFactsSqlite(db: SqliteDb, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID) {
   const bounds = eventDayBounds(now, timeZone);
   const localDay = wallClockParts(now, timeZone);
   const shop = db.prepare("SELECT currency FROM shops WHERE id = ?").get(shopId) as { currency: string };
@@ -64,7 +73,15 @@ export function organizerFacts(db: Db, timeZone: string, now = new Date(), shopI
   };
 }
 
+export function organizerSummary(db: FirestoreDb, timeZone: string, shopId?: string): ReturnType<typeof firestoreAnalytics.organizerSummary>;
+export function organizerSummary(db: SqliteDb, timeZone: string, shopId?: string): ReturnType<typeof organizerSummarySqlite>;
+export function organizerSummary(db: Db, timeZone: string, shopId?: string): ReturnType<typeof organizerSummarySqlite> | ReturnType<typeof firestoreAnalytics.organizerSummary>;
 export function organizerSummary(db: Db, timeZone: string, shopId = DEFAULT_SHOP_ID) {
+  if ((db as FirestoreDb).firestoreBrand) return firestoreAnalytics.organizerSummary(db as FirestoreDb, timeZone, shopId);
+  return organizerSummarySqlite(db as SqliteDb, timeZone, shopId);
+}
+
+function organizerSummarySqlite(db: SqliteDb, timeZone: string, shopId = DEFAULT_SHOP_ID) {
   const facts = organizerFacts(db, timeZone, new Date(), shopId);
   const rows = db.prepare("SELECT * FROM orders WHERE shop_id = ? ORDER BY created_at DESC LIMIT 50").all(shopId) as OrderRow[];
   const orders = rows.map((order) => ({

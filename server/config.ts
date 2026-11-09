@@ -11,6 +11,7 @@ export interface AppConfig {
   eventName: string;
   eventTimeZone: string;
   currency: CurrencyCode;
+  databaseBackend: "sqlite" | "firestore";
   databasePath: string;
   paypalMode: "sandbox";
   paypalClientId: string | null;
@@ -75,6 +76,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const geminiModel = env.GEMINI_MODEL?.trim() || "gemini-3.5-flash-lite";
   if (!/^[a-z0-9][a-z0-9.-]{0,127}$/.test(geminiModel)) throw new Error("GEMINI_MODEL is invalid");
+  const databaseBackend = env.DATABASE_BACKEND?.trim() || (nodeEnv === "production" ? "firestore" : "sqlite");
+  if (databaseBackend !== "sqlite" && databaseBackend !== "firestore") throw new Error("DATABASE_BACKEND must be sqlite or firestore");
 
   return {
     nodeEnv,
@@ -83,6 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     eventName: "Little Harbor Market",
     eventTimeZone: timeZone,
     currency: "JPY",
+    databaseBackend,
     databasePath: env.DATABASE_PATH?.trim() || path.resolve(process.cwd(), ".data/yatalk.sqlite"),
     paypalMode: "sandbox",
     paypalClientId: optionalSecret(env.PAYPAL_CLIENT_ID),

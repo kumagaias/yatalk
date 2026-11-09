@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import type { AppConfig } from "./config.js";
-import { DEFAULT_SHOP_ID, type Db, type Shop } from "./database.js";
+import { DEFAULT_SHOP_ID, type Db, type FirestoreDb, type Shop, type SqliteDb } from "./database.js";
 import { ApiError } from "./errors.js";
 
 const VISITOR_COOKIE = "yatalk_visitor";
@@ -51,7 +51,11 @@ function requestShop(request: Request): Pick<Shop, "id"> {
   return request.shop ? { id: request.shop.id } : { id: DEFAULT_SHOP_ID };
 }
 
-export function createVisitorSession(db: Db, response: Response, config: AppConfig, shop: Pick<Shop, "id"> = { id: DEFAULT_SHOP_ID }): VisitorSession {
+export function createVisitorSession(db: FirestoreDb, response: Response, config: AppConfig, shop?: Pick<Shop, "id">): Promise<VisitorSession>;
+export function createVisitorSession(db: SqliteDb, response: Response, config: AppConfig, shop?: Pick<Shop, "id">): VisitorSession;
+export function createVisitorSession(db: Db, response: Response, config: AppConfig, shop?: Pick<Shop, "id">): VisitorSession | Promise<VisitorSession>;
+export function createVisitorSession(db: Db, response: Response, config: AppConfig, shop: Pick<Shop, "id"> = { id: DEFAULT_SHOP_ID }): VisitorSession | Promise<VisitorSession> {
+  if ((db as FirestoreDb).firestoreBrand) return createFirestoreVisitorSession(db as FirestoreDb, response, config, shop);
   db.prepare(`DELETE FROM visitor_sessions WHERE session_hash IN (
     SELECT session_hash FROM visitor_sessions
     WHERE expires_at <= ?
@@ -69,14 +73,12 @@ export function createVisitorSession(db: Db, response: Response, config: AppConf
 }
 
 export function requireVisitor(db: Db, _config: AppConfig) {
-  return (request: Request, _response: Response, next: NextFunction): void => {
+  return async (request: Request, _response: Response, next: NextFunction): Promise<void> => {
     const shop = requestShop(request);
     const token = getCookie(request, visitorCookieName(shop));
     const tokenIsValid = token && /^[A-Za-z0-9_-]{40,64}$/.test(token);
     const hash = tokenIsValid ? sha256(token) : "";
-    const session = hash ? db.prepare(`SELECT session_hash FROM visitor_sessions
-      WHERE session_hash = ? AND shop_id = ? AND expires_at > ?`)
-      .get(hash, shop.id, new Date().toISOString()) as { session_hash: string } | undefined : undefined;
+    const session = hash ? (await getVisitorSession(db, hash, shop.id)) : undefined;
     if (!session || !token) {
       next(new ApiError(401, "visitor_session_required", "Refresh the page to start a new session."));
       return;
@@ -86,14 +88,40 @@ export function requireVisitor(db: Db, _config: AppConfig) {
   };
 }
 
-export function attachVisitorIfPresent(db: Db, request: Request): VisitorSession | undefined {
+export function attachVisitorIfPresent(db: FirestoreDb, request: Request): Promise<VisitorSession | undefined>;
+export function attachVisitorIfPresent(db: SqliteDb, request: Request): VisitorSession | undefined;
+export function attachVisitorIfPresent(db: Db, request: Request): VisitorSession | undefined | Promise<VisitorSession | undefined>;
+export function attachVisitorIfPresent(db: Db, request: Request): VisitorSession | undefined | Promise<VisitorSession | undefined> {
   const shop = requestShop(request);
   const token = getCookie(request, visitorCookieName(shop));
   if (!token || !/^[A-Za-z0-9_-]{40,64}$/.test(token)) return undefined;
   const hash = sha256(token);
+  if ((db as FirestoreDb).firestoreBrand) return getVisitorSession(db, hash, shop.id).then((session) => session ? { token, hash, shopId: shop.id } : undefined);
   const session = db.prepare(`SELECT session_hash FROM visitor_sessions WHERE session_hash = ? AND shop_id = ? AND expires_at > ?`)
     .get(hash, shop.id, new Date().toISOString()) as { session_hash: string } | undefined;
   return session ? { token, hash, shopId: shop.id } : undefined;
+}
+
+async function createFirestoreVisitorSession(db: FirestoreDb, response: Response, config: AppConfig, shop: Pick<Shop, "id">): Promise<VisitorSession> {
+  const token = randomBytes(32).toString("base64url");
+  const hash = sha256(token);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + VISITOR_TTL_SECONDS * 1000).toISOString();
+  await db.firestoreStore.create("visitorSessions", hash, {
+    id: hash, shopId: shop.id, cartVersion: 0, expiresAt, expiresAtTtl: new Date(expiresAt), createdAt: now.toISOString(),
+  });
+  response.append("Set-Cookie", `${visitorCookieName(shop)}=${token}; ${cookieOptions(config, VISITOR_TTL_SECONDS)}`);
+  return { token, hash, shopId: shop.id };
+}
+
+async function getVisitorSession(db: Db, hash: string, shopId: string): Promise<{ session_hash: string } | undefined> {
+  if ((db as FirestoreDb).firestoreBrand) {
+    const session = await (db as FirestoreDb).firestoreStore.get<{ shopId: string; expiresAt: string } & Record<string, unknown>>("visitorSessions", hash);
+    return session?.shopId === shopId && session.expiresAt > new Date().toISOString() ? { session_hash: hash } : undefined;
+  }
+  return db.prepare(`SELECT session_hash FROM visitor_sessions
+      WHERE session_hash = ? AND shop_id = ? AND expires_at > ?`)
+    .get(hash, shopId, new Date().toISOString()) as { session_hash: string } | undefined;
 }
 
 function adminSignature(payload: string, secret: string): string {
