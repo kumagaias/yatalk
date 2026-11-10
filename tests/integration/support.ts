@@ -39,12 +39,21 @@ export class FakePayPal implements PayPalProvider {
   failFirstCapture = false;
   failFirstRefund = false;
   mismatchAmount = false;
+  omitOrderReferences = false;
+  referenceIdOverride: string | null = null;
+  customIdOverride: string | null = null;
   allowWebhook = true;
   failWebhookVerification = false;
   verificationDelayMs = 0;
   getOrderGate: Promise<void> | null = null;
   onGetOrder: (() => void) | null = null;
   orderStatusOverride: string | null = null;
+
+  private orderReferences(localOrderId: string) {
+    return this.omitOrderReferences
+      ? { referenceId: null, customId: null }
+      : { referenceId: this.referenceIdOverride ?? localOrderId, customId: this.customIdOverride ?? localOrderId };
+  }
 
   async createOrder(input: PayPalOrderInput) {
     this.createCalls.push(input);
@@ -59,7 +68,7 @@ export class FakePayPal implements PayPalProvider {
     if (this.getOrderGate) await this.getOrderGate;
     const order = this.orders.get(orderId)!;
     return { orderId, orderStatus: this.orderStatusOverride ?? (order.completed ? "COMPLETED" : "APPROVED"),
-      referenceId: order.localOrderId, customId: order.localOrderId,
+      ...this.orderReferences(order.localOrderId),
       captureId: order.completed ? `CAPTURE-${order.localOrderId}` : null,
       captureStatus: order.completed ? "COMPLETED" : null, currency: order.currency, amountMinor: order.total + (this.mismatchAmount ? 1 : 0) };
   }
@@ -69,7 +78,7 @@ export class FakePayPal implements PayPalProvider {
     if (this.failFirstCapture && this.captureCalls.length === 1) throw new ProviderError("paypal", "mutation", false);
     const order = this.orders.get(orderId)!;
     order.completed = true;
-    return { orderId, orderStatus: "COMPLETED", referenceId: order.localOrderId, customId: order.localOrderId,
+    return { orderId, orderStatus: "COMPLETED", ...this.orderReferences(order.localOrderId),
       captureId: `CAPTURE-${order.localOrderId}`, captureStatus: "COMPLETED", currency: order.currency,
       amountMinor: order.total + (this.mismatchAmount ? 1 : 0) };
   }

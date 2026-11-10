@@ -29,6 +29,14 @@ async function paypalItems(db: Db, order: OrderRow) {
     quantity: line.quantity, unitAmount: line.unit_price_minor }));
 }
 
+function referenceIdMatches(order: OrderRow, result: Awaited<ReturnType<PayPalProvider["getOrder"]>>): boolean {
+  return result.referenceId === null || result.referenceId === "default" || result.referenceId === order.id;
+}
+
+function customIdMatches(order: OrderRow, result: Awaited<ReturnType<PayPalProvider["getOrder"]>>): boolean {
+  return result.customId === null || result.customId === order.id;
+}
+
 function ensureCaptureMatches(
   order: OrderRow,
   result: Awaited<ReturnType<PayPalProvider["getOrder"]>>,
@@ -36,8 +44,8 @@ function ensureCaptureMatches(
 ): string {
   const verification = {
     orderIdMatches: result.orderId === order.paypal_order_id,
-    referenceIdMatches: result.referenceId === order.id,
-    customIdMatches: result.customId === order.id,
+    referenceIdMatches: referenceIdMatches(order, result),
+    customIdMatches: customIdMatches(order, result),
     currencyMatches: result.currency === order.currency,
     amountMatches: result.amountMinor === order.total_minor,
     orderCompleted: result.orderStatus === "COMPLETED",
@@ -151,7 +159,7 @@ export async function captureOrder(db: Db, paypal: PayPalProvider, sessionHash: 
       await markCaptureUnknown(db, order.id, shopId);
       throw new ApiError(202, "capture_unknown", "Payment status is being checked. Retry to refresh it.");
     }
-    if (observed.orderId !== order.paypal_order_id || observed.referenceId !== order.id || observed.customId !== order.id ||
+    if (observed.orderId !== order.paypal_order_id || !referenceIdMatches(order, observed) || !customIdMatches(order, observed) ||
         observed.currency !== order.currency || observed.amountMinor !== order.total_minor) {
       await markCaptureUnknown(db, order.id, shopId);
       throw new ApiError(502, "payment_verification_failed", "Payment details could not be verified. Contact the organizer.");
