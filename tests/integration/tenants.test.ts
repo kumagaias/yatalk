@@ -315,16 +315,14 @@ test("free owner accounts can create at most three shops", async () => {
   });
 });
 
-test("owner registration blocks repeated attempts from one IP before ten attempts", async () => {
+test("owner registration allows ten attempts from one IP and blocks the eleventh", async () => {
   await withServer(new FakePayPal(), async (url) => {
-    const suffix = Math.random().toString(36).slice(2, 10);
-    const register = (index: number) => json(`${url}/api/v1/owners`, {
+    const register = () => json(`${url}/api/v1/owners`, {
       method: "POST", headers: { origin, "content-type": "application/json" },
-      body: JSON.stringify({ displayName: `Rate test ${index}`, ownerSlug: `rate-${suffix}-${index}`,
-        email: `rate-${suffix}-${index}@example.test`, password: "a-test-password-123", defaultCurrency: "JPY" }),
+      body: JSON.stringify({}),
     });
-    for (let index = 1; index <= 3; index += 1) assert.equal((await register(index)).response.status, 201);
-    const limited = await register(4);
+    for (let index = 0; index < 10; index += 1) assert.equal((await register()).response.status, 400);
+    const limited = await register();
     assert.equal(limited.response.status, 429);
     assert.equal(limited.body.error.code, "rate_limited");
   });

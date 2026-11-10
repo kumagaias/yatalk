@@ -15,12 +15,14 @@ Continue Yatalk's AI-first market flow, with owner menu setup, buyer voice order
 
 - Added AI-assisted restock priorities with available units, recent sales, days of cover, suggested quantity, and a review/receive action.
 - Added English and Japanese inventory-intent matching so stock and sales questions load the seven-day sales window only when needed.
+- Set owner signup throttling to ten attempts per IP per hour; the eleventh attempt is rejected, including attempts with invalid form data.
 - Continued owner registration/reset protection, OCR and manual menu setup, shop images, path-addressed shops, voice-order resilience, and Firestore persistence from the existing worktree.
 
 ## Checks
 
 - `npm run build` passed.
 - `npm test` passed: 94 passed, 0 failed, 2 Firestore Emulator tests skipped because no emulator was configured.
+- Registration throttling integration coverage confirms ten attempts pass the limiter and the eleventh receives HTTP 429.
 - `terraform fmt -check -recursive infra/environments/prd` passed.
 - Gitleaks found no leaks; changed hand-written source/config files are all at or below 500 lines.
 

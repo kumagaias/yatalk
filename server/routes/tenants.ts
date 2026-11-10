@@ -57,7 +57,7 @@ export function tenantRoutes(db: Db, config: AppConfig, emailSender: EmailSender
   const router = Router();
   const originOnly = requireExactOrigin(config);
   const ownerOnly = requireOwner(db);
-  const signupPerIp = createRateLimit(3, 60 * 60_000, ipKey);
+  const signupPerIp = createRateLimit(10, 60 * 60_000, ipKey);
   const slugCheckPerIp = createRateLimit(60, 60_000, ipKey);
   const loginPerIp = createRateLimit(5, 15 * 60_000, ipKey);
   const loginPerEmail = createRateLimit(10, 15 * 60_000, (request) => {
