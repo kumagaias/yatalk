@@ -18,7 +18,7 @@ export type SupportedAudioMimeType = "audio/webm" | "audio/ogg";
 
 export interface AiProvider {
   interpretCart(context: ChatContext): Promise<ChatModelOutput>;
-  explainFacts(question: string, facts: unknown): Promise<string>;
+  explainFacts(question: string, facts: unknown): Promise<{ answer: string; restockPriorityIds: string[] }>;
   transcribeAudio(audio: Buffer, mimeType: SupportedAudioMimeType): Promise<string>;
   extractMenu(image: Buffer, mimeType: MenuImageMimeType, currency?: string): Promise<MenuExtraction>;
   assistMenu(context: MenuAssistantRequest & { currency: string }): Promise<MenuAssistantResponse>;
@@ -46,8 +46,10 @@ const chatJsonSchema: JsonSchema = {
 };
 
 const organizerJsonSchema: JsonSchema = {
-  type: "object", properties: { answer: { type: "string" } },
-  required: ["answer"], additionalProperties: false,
+  type: "object", properties: {
+    answer: { type: "string" },
+    restockPriorityIds: { type: "array", maxItems: 5, items: { type: "string" } },
+  }, required: ["answer", "restockPriorityIds"], additionalProperties: false,
 };
 
 const transcriptJsonSchema: JsonSchema = {
@@ -80,7 +82,10 @@ const menuAssistantJsonSchema: JsonSchema = {
   }, required: ["reply", "suggestions"], additionalProperties: false,
 };
 
-const organizerAnswerSchema = z.object({ answer: z.string().trim().min(1).max(500) }).strict();
+const organizerAnswerSchema = z.object({
+  answer: z.string().trim().min(1).max(500),
+  restockPriorityIds: z.array(z.string().min(1).max(80)).max(5),
+}).strict();
 const transcriptSchema = z.object({ transcript: z.string().trim().max(800) }).strict();
 
 function createModelCall(config: AppConfig): GeminiModelCall {
@@ -144,19 +149,19 @@ export class GeminiVertex implements AiProvider {
     }
   }
 
-  async explainFacts(question: string, facts: unknown): Promise<string> {
+  async explainFacts(question: string, facts: unknown): Promise<{ answer: string; restockPriorityIds: string[] }> {
     try {
       const output = await this.generate({
         model: this.model,
         contents: JSON.stringify({ question, facts }),
         config: {
-          systemInstruction: "Answer the organizer's question using only the supplied database facts. Do not invent or recalculate numbers. If the facts do not answer the question, state that there is no matching data. Be concise and never propose payment, refund, or stock changes.",
+          systemInstruction: "Answer the organizer using only the supplied database facts. Do not invent or recalculate numbers. If facts do not answer the question, say there is no matching data. For stock questions, use restockCandidates and recent sales. When asked what to restock or prioritize, return up to five IDs from restockCandidates, ordered by lowest daysOfCover, then stronger seven-day sales. Return an empty list for unrelated questions or when there are no candidates. Do not invent forecasts or quantities. Explain that the suggested amount aims for a two-day sales cover with a five-unit minimum. Never change stock, take payment, or issue refunds.",
           responseMimeType: "application/json",
           responseJsonSchema: organizerJsonSchema,
           maxOutputTokens: 220,
         },
       });
-      return parseJson(output, organizerAnswerSchema).answer;
+      return parseJson(output, organizerAnswerSchema);
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       throw new ProviderError("gemini", "organizer_answer", false);

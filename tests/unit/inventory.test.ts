@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { createDatabase } from "../../server/database.js";
-import { applyCartOperations, readCart, listProducts, patchProduct } from "../../server/inventory.js";
+import { applyCartOperations, readCart, listProducts, patchProduct, receiveProductStock } from "../../server/inventory.js";
 import { beginRefund, cancelOrder, completeCapture, completeRefund, reserveOrder, setCreatedOrder } from "../../server/order-state.js";
 import { ApiError } from "../../server/errors.js";
 
@@ -79,5 +79,21 @@ test("stock edits cannot go below reservations and stale cart versions are rejec
     assert.equal(patchProduct(db, "yakisoba", { stockOnHand: 2 }).available, 0);
     const current = readCart(db, hash);
     assert.equal(current.cartVersion, 1);
+  } finally { db.close(); }
+});
+
+test("received stock increments atomically within the catalog limit", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const receiptId = randomUUID();
+    const receipt = receiveProductStock(db, "yakisoba", 3, receiptId);
+    assert.equal(receipt.product.stockOnHand, 27);
+    assert.equal(receipt.product.available, 27);
+    assert.equal(receipt.applied, true);
+    assert.equal(receiveProductStock(db, "yakisoba", 3, receiptId).applied, false);
+    assert.equal(listProducts(db).find((item) => item.id === "yakisoba")?.stockOnHand, 27);
+    assert.throws(() => receiveProductStock(db, "yakisoba", 2, receiptId), (error: unknown) => error instanceof ApiError && error.code === "stock_receipt_conflict");
+    assert.throws(() => receiveProductStock(db, "yakisoba", 999, randomUUID()), (error: unknown) => error instanceof ApiError && error.code === "stock_limit");
+    assert.throws(() => receiveProductStock(db, "missing", 1, randomUUID()), (error: unknown) => error instanceof ApiError && error.status === 404);
   } finally { db.close(); }
 });

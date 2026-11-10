@@ -15,6 +15,13 @@
 .assistant-suggestions .button { justify-self: start; }
 .assistant-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .assistant-facts span { padding: 4px 8px; border-radius: 99px; background: var(--surface); font-size: 11px; }
+.assistant-stock-priority { display: grid; gap: 7px; margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.assistant-stock-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 7px; border-top: 1px solid var(--line); }
+.assistant-stock-item > span:first-child { display: grid; gap: 2px; }
+.assistant-stock-item small, .assistant-stock-note { color: var(--muted); font-size: 11px; }
+.assistant-stock-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.assistant-stock-note { display: block; }
+.assistant-stock-item .text-button { flex: 0 0 auto; font-size: 12px; }
 .assistant-status { margin: 0; color: var(--muted); font-size: 13px; }
 .assistant-prompts { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0; }
 .assistant-prompts button { min-height: 36px; padding: 5px 10px; color: var(--muted); font-size: 12px; }

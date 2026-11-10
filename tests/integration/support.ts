@@ -8,6 +8,8 @@ import { createFirestoreDatabase, initializeFirestoreDatabase } from "../../serv
 import { randomUUID } from "node:crypto";
 import { ProviderError } from "../../server/errors.js";
 import type { AiProvider } from "../../server/services/ai.js";
+import type { EmailSender, TransactionalEmail } from "../../server/email.js";
+import type { ShopImageStorage, StoredShopImage } from "../../server/shop-image-storage.js";
 import type { PayPalCaptureResult, PayPalOrderInput, PayPalProvider, PayPalRefundResult, WebhookHeaders } from "../../server/services/paypal.js";
 
 export const origin = "http://127.0.0.1:5173";
@@ -19,6 +21,8 @@ function config(): AppConfig {
     paypalMode: "sandbox", paypalClientId: "test-client", paypalClientSecret: "test-secret", paypalWebhookId: "test-webhook",
     googleCloudProject: null, googleCloudLocation: "global", geminiModel: "test-model",
     adminAccessCode: "local-test-code!!", adminSessionSecret: "test-session-secret",
+    resendApiKey: null, resendFromEmail: null,
+    shopImageBucket: null,
   };
 }
 
@@ -85,7 +89,11 @@ export class FakePayPal implements PayPalProvider {
 
 const fakeAi: AiProvider = {
   async interpretCart() { return { reply: "I can help with that.", clarification: null, operations: [] }; },
-  async explainFacts() { return "Sales and stock are based on the dashboard figures."; },
+  async explainFacts(_question, facts) {
+    const source = facts as { restockCandidates?: Array<{ id: string }>; lowStockItems?: Array<{ id: string }> };
+    const candidates = source.restockCandidates ?? source.lowStockItems ?? [];
+    return { answer: "Sales and stock are based on the dashboard figures.", restockPriorityIds: candidates.slice(0, 5).map(({ id }) => id) };
+  },
   async assistMenu() { return { reply: "Here is a draft to review.", suggestions: [
     { name: "Citrus tea", description: "A bright tea idea", priceMinor: null, dietaryNote: "" },
   ] }; },
@@ -97,9 +105,23 @@ const fakeAi: AiProvider = {
   ] }; },
 };
 
-export async function withServer<T>(paypal: FakePayPal, work: (url: string, db: ReturnType<typeof createDatabase>) => Promise<T>, assistant: AiProvider = fakeAi): Promise<T> {
+export class FakeEmailSender implements EmailSender {
+  readonly messages: TransactionalEmail[] = [];
+  async send(email: TransactionalEmail) { this.messages.push(email); }
+}
+
+export class FakeShopImageStorage implements ShopImageStorage {
+  readonly images = new Map<string, StoredShopImage>();
+  async put(shopId: string, image: StoredShopImage) { this.images.set(shopId, { data: Buffer.from(image.data), mimeType: image.mimeType }); }
+  async get(shopId: string) {
+    const image = this.images.get(shopId);
+    return image ? { data: Buffer.from(image.data), mimeType: image.mimeType } : undefined;
+  }
+}
+
+export async function withServer<T>(paypal: FakePayPal, work: (url: string, db: ReturnType<typeof createDatabase>) => Promise<T>, assistant: AiProvider = fakeAi, emailSender: EmailSender = new FakeEmailSender(), shopImageStorage: ShopImageStorage | null = null): Promise<T> {
   const db = createDatabase(":memory:");
-  const app = createApp({ config: config(), db, paypal, ai: assistant, serveStatic: false });
+  const app = createApp({ config: config(), db, paypal, ai: assistant, emailSender, shopImageStorage, serveStatic: false });
   const server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
@@ -118,11 +140,12 @@ export async function withFirestoreServer<T>(
   work: (url: string, db: FirestoreDb) => Promise<T>,
   assistant: AiProvider = fakeAi,
   projectId = `yatalk-test-${randomUUID().slice(0, 8)}`,
+  emailSender: EmailSender = new FakeEmailSender(),
 ): Promise<T> {
   if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error("FIRESTORE_EMULATOR_HOST is required for Firestore integration tests");
   const db = createFirestoreDatabase(projectId);
   await initializeFirestoreDatabase(db);
-  const app = createApp({ config: { ...config(), databaseBackend: "firestore", googleCloudProject: projectId }, db, paypal, ai: assistant, serveStatic: false });
+  const app = createApp({ config: { ...config(), databaseBackend: "firestore", googleCloudProject: projectId }, db, paypal, ai: assistant, emailSender, serveStatic: false });
   const server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();

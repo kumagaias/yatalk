@@ -89,6 +89,22 @@ variable "enable_organizer_access" {
   default     = false
 }
 
+variable "enable_email_delivery" {
+  description = "Inject the Resend API key into Cloud Run after its Secret Manager version exists."
+  type        = bool
+  default     = false
+}
+
+variable "resend_from_email" {
+  description = "Verified sender address configured in Resend; required only when email delivery is enabled."
+  type        = string
+  default     = ""
+  validation {
+    condition     = !var.enable_email_delivery || can(regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", var.resend_from_email))
+    error_message = "Email delivery requires a valid, verified resend_from_email address."
+  }
+}
+
 variable "container_image" {
   description = "Digest-pinned Artifact Registry image for the preview service; leave empty until Cloud Build publishes it."
   type        = string

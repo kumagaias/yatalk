@@ -16,11 +16,12 @@ export function isValidShopSlug(slug: string): boolean {
 
 export function ownerSlugFromName(name: string): string {
   if (!name.trim()) return "";
-  return name.normalize("NFKD").toLowerCase().replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/g, "") || "my-owner";
+  const slug = name.normalize("NFKD").toLowerCase().replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/g, "");
+  return !slug ? "my-owner" : slug.length < 5 ? `owner-${slug}` : slug;
 }
 
 export function isValidOwnerSlug(slug: string): boolean {
-  return slug.length >= 3 && slug.length <= 40 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) &&
+  return slug.length >= 5 && slug.length <= 40 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) &&
     !["api", "dashboard", "shops", "organizer", "owners", "new"].includes(slug);
 }

@@ -1,10 +1,11 @@
-import { Plus, ScanLine, Trash2 } from "lucide-react";
+import { Image, Plus, ScanLine, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import type { MenuExtraction } from "../../shared/schemas.js";
 import type { OrganizerProduct } from "../types";
 import { ApiError, post, postImage } from "../lib/api";
 import { Alert } from "./Feedback";
 import { amountFromMinor, parseAmountToMinor } from "../../shared/currency.js";
+import { loadSampleMenuFile } from "../lib/sample-menu";
 
 type Draft = {
   key: string;
@@ -26,10 +27,12 @@ function logMenuFlow(correlationId: string, stage: string, outcome: "start" | "s
   console.info(JSON.stringify({ timestamp: new Date().toISOString(), correlationId, stage, outcome, ...(errorName ? { errorName } : {}) }));
 }
 
-export function MenuSetupCard({ onSaved, currency = "JPY", assistantSuggestions = null, onAssistantSuggestionsAdded, onDraftContextChange }: {
+export function MenuSetupCard({ onSaved, currency = "JPY", assistantSuggestions = null, assistantSuggestionSource = "assistant", initialError = "", onAssistantSuggestionsAdded, onDraftContextChange }: {
   onSaved: () => Promise<void>;
   currency?: string;
   assistantSuggestions?: MenuExtraction["items"] | null;
+  assistantSuggestionSource?: "assistant" | "photo";
+  initialError?: string;
   onAssistantSuggestionsAdded?: () => void;
   onDraftContextChange?: (items: MenuExtraction["items"]) => void;
 }) {
@@ -45,6 +48,8 @@ export function MenuSetupCard({ onSaved, currency = "JPY", assistantSuggestions 
       name, description, priceMinor: price ? parseAmountToMinor(price, currency) : null, dietaryNote,
     })));
   }, [drafts, currency, onDraftContextChange]);
+
+  useEffect(() => { if (initialError) setError(initialError); }, [initialError]);
 
   const scanPhoto = async () => {
     if (!photo || reading || saving) return;
@@ -78,18 +83,25 @@ export function MenuSetupCard({ onSaved, currency = "JPY", assistantSuggestions 
     }
   };
 
+  const useSamplePhoto = async () => {
+    setError(""); setStatus("");
+    try { setPhoto(await loadSampleMenuFile()); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "The sample menu could not be loaded. Choose another photo."); }
+  };
+
   useEffect(() => {
     if (!assistantSuggestions?.length) return;
+    const fromPhoto = assistantSuggestionSource === "photo";
     const suggestions: Draft[] = assistantSuggestions.map((item) => ({
       key: crypto.randomUUID(), name: item.name, description: item.description,
       price: item.priceMinor === null ? "" : amountFromMinor(item.priceMinor, currency),
-      stockOnHand: "", dietaryNote: item.dietaryNote, fromPhoto: false, fromAssistant: true,
+      stockOnHand: "", dietaryNote: item.dietaryNote, fromPhoto, fromAssistant: !fromPhoto,
     }));
     setDrafts((current) => [...current, ...suggestions]);
     setError("");
-    setStatus(`${suggestions.length} AI suggestions added to the editable draft. Check every field and enter current stock before saving.`);
+    setStatus(`${suggestions.length} ${fromPhoto ? "OCR" : "AI"} suggestions added to the editable draft. Check every field and enter current stock before saving.`);
     onAssistantSuggestionsAdded?.();
-  }, [assistantSuggestions, currency, onAssistantSuggestionsAdded]);
+  }, [assistantSuggestions, assistantSuggestionSource, currency, onAssistantSuggestionsAdded]);
 
   const updateDraft = (key: string, field: keyof Omit<Draft, "key" | "fromPhoto">, value: string) => {
     setDrafts((current) => current.map((draft) => draft.key === key ? { ...draft, [field]: value } : draft));
@@ -141,6 +153,7 @@ export function MenuSetupCard({ onSaved, currency = "JPY", assistantSuggestions 
           <ScanLine size={17} aria-hidden="true" />{reading ? "Reading menu…" : "Read menu photo"}
         </button>
       </div>
+      <div className="sample-menu-choice"><img src="/menu-ocr-sample.png" alt="Sample stall menu with grilled onigiri, iced tea, and mikan jelly" /><div><strong>Want to try OCR first?</strong><button className="button button-secondary" type="button" onClick={() => void useSamplePhoto()} disabled={reading || saving}><Image size={16} aria-hidden="true" />Use sample photo</button></div></div>
       <p className="menu-privacy-note">The photo is sent to Google Cloud for menu reading and is not stored by Yatalk.</p>
       <div className="menu-manual-row">
         <span>Or add menu items manually</span>

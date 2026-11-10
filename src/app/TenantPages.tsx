@@ -1,16 +1,20 @@
 import { ArrowRight, ArrowUpRight, Leaf, LogOut, Plus, Store } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Alert, Loading } from "../components/Feedback";
 import { BrandHeader } from "../components/BrandHeader";
 import { del, get, post } from "../lib/api";
 import { isValidOwnerSlug, isValidShopSlug, ownerSlugFromName, shopSlugFromName } from "../lib/shop-slug";
 import type { Order } from "../types";
 import { money } from "../lib/format";
+import { MAX_FREE_OWNER_SHOPS } from "../../shared/owner-limits.js";
 import { useParams } from "react-router-dom";
+import type { MenuExtraction } from "../../shared/schemas.js";
+import { postImage } from "../lib/api";
+import { loadSampleMenuFile } from "../lib/sample-menu";
 
 type ShopSummary = { slug: string; name: string; status: "active" | "inactive"; ownerSlug?: string; currency?: string };
-type OwnerSession = { authenticated: boolean; displayName?: string; ownerSlug?: string; defaultCurrency?: string };
+type OwnerSession = { authenticated: boolean; email?: string; displayName?: string; ownerSlug?: string; defaultCurrency?: string; emailVerified?: boolean };
 const currencyOptions = ["AUD", "CAD", "EUR", "GBP", "JPY", "SGD", "USD"];
 
 export function PlatformHome() {
@@ -60,8 +64,8 @@ export function OwnerRegistrationPage() {
     if (busy) return;
     setBusy(true); setError("");
     try {
-      await post("/api/v1/owners", { displayName, ownerSlug, email, password, defaultCurrency });
-      navigate("/dashboard/shops/new", { replace: true });
+      const result = await post<{ verificationEmailSent: boolean }>("/api/v1/owners", { displayName, ownerSlug, email, password, defaultCurrency });
+      navigate("/dashboard/shops", { replace: true, state: { verificationEmailSent: result.verificationEmailSent } });
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Your owner account could not be created."); }
     finally { setBusy(false); }
   };
@@ -75,7 +79,7 @@ export function OwnerRegistrationPage() {
         {slugAvailability === "checking" && <p className="form-help" role="status">Checking address availability…</p>}
         {slugAvailability === "available" && <p className="form-help form-help-success" role="status">This owner address is available.</p>}
         {slugAvailability === "taken" && <p className="form-help form-help-error" role="status">This owner address is already in use.</p>}
-        {slugAvailability === "invalid" && <p className="form-help form-help-error" role="status">Use 3–40 lowercase letters, numbers, or single hyphens.</p>}
+        {slugAvailability === "invalid" && <p className="form-help form-help-error" role="status">Use 5–40 lowercase letters, numbers, or single hyphens.</p>}
         {slugAvailability === "error" && <p className="form-help" role="status">Availability could not be checked. We’ll verify it when you continue.</p>}
       </div>
       <div className="form-field"><label htmlFor="owner-currency">Default currency</label><select id="owner-currency" value={defaultCurrency} onChange={(event) => setDefaultCurrency(event.target.value)}>{currencyOptions.map((currency) => <option key={currency}>{currency}</option>)}</select><p className="form-help">Your shops and PayPal checkout will use this currency.</p></div>
@@ -89,10 +93,12 @@ export function OwnerRegistrationPage() {
 
 export function ShopSetupPage() {
   const [name, setName] = useState("");
+  const [menuPhoto, setMenuPhoto] = useState<File | null>(null);
   const slug = shopSlugFromName(name);
   const [slugAvailability, setSlugAvailability] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "error">("idle");
   const [owner, setOwner] = useState<OwnerSession | null>(null);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
 
@@ -135,11 +141,35 @@ export function ShopSetupPage() {
     setBusy(true);
     setError("");
     try {
+      const ownerSlug = owner?.ownerSlug;
+      if (!ownerSlug) throw new Error("Sign in again to create your shop.");
       const result = await post<{ shop: ShopSummary }>("/api/v1/dashboard/shops", { name, slug });
-      navigate(`/dashboard/${encodeURIComponent(owner?.ownerSlug ?? "")}/${encodeURIComponent(result.shop.slug)}`, { replace: true });
+      const dashboardPath = `/dashboard/${encodeURIComponent(ownerSlug)}/${encodeURIComponent(result.shop.slug)}`;
+      let nextState: { initialPhotoSuggestions?: MenuExtraction["items"]; initialPhotoError?: string } = {};
+      if (menuPhoto) {
+        setStatus("Shop created. Reading your menu photo…");
+        try {
+          const extraction = await postImage<MenuExtraction>(`/api/v1${dashboardPath}/menu/scan`, menuPhoto);
+          if (extraction.items.length) nextState = { initialPhotoSuggestions: extraction.items };
+          else nextState = { initialPhotoError: "The shop is ready, but no menu items could be read. Try another photo or add items manually." };
+        } catch (reason) {
+          nextState = { initialPhotoError: reason instanceof Error ? reason.message : "The shop is ready, but the menu photo could not be read. Try again or add items manually." };
+        }
+      }
+      navigate(dashboardPath, { replace: true, state: nextState });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The shop could not be created. Please retry.");
     } finally { setBusy(false); }
+  };
+
+  const chooseSampleMenu = async () => {
+    setError("");
+    setStatus("");
+    try {
+      setMenuPhoto(await loadSampleMenuFile());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The sample menu could not be loaded. Choose another photo.");
+    }
   };
 
   return <div>
@@ -149,17 +179,26 @@ export function ShopSetupPage() {
         <span className="auth-symbol"><Leaf size={22} aria-hidden="true" /></span>
         <p className="eyebrow">{owner?.displayName ?? "Your owner account"} · {owner?.defaultCurrency ?? ""}</p>
         <h1 id="shop-setup-heading">Create your shop</h1>
-        <p className="auth-intro">Your public page will be at <strong>yatalk.kumagaias.com/{owner?.ownerSlug ?? "your-name"}/{slug || "your-shop"}</strong>.</p>
-        <p className="auth-intro shop-setup-next-step">After creation, add menu items from a photo or enter them yourself.</p>
+        <p className="auth-intro">Your public page will be at <strong>yatalk.kumagaias.com/{owner?.ownerSlug ?? "your-owner"}/{slug || "your-shop"}</strong>.</p>
+        <p className="auth-intro shop-setup-next-step">Add your menu photo now. AI will read it after your shop is created; review every suggestion and enter the current stock before publishing.</p>
         <form onSubmit={(event) => void submit(event)}>
           <div className="form-field"><label htmlFor="shop-name">Shop name</label><input id="shop-name" autoComplete="organization" maxLength={80} required value={name} onChange={(event) => { setName(event.target.value); setError(""); }} /></div>
-          <div className="form-field"><label htmlFor="shop-slug">Shop address</label><div className="slug-input"><span>yatalk.kumagaias.com/shops/</span><output id="shop-slug">{slug || "your-shop"}</output></div><p className="form-help">Generated automatically from your shop name.</p>
+          <div className="form-field"><label htmlFor="shop-slug">Shop address</label><div className="slug-input"><span>yatalk.kumagaias.com/{owner?.ownerSlug ?? "your-owner"}/</span><output id="shop-slug">{slug || "your-shop"}</output></div><p className="form-help">Generated automatically from your shop name and owner address.</p>
             {slugAvailability === "checking" && <p className="form-help" role="status">Checking address availability…</p>}
             {slugAvailability === "available" && <p className="form-help slug-status form-help-success" role="status">This address is available.</p>}
             {slugAvailability === "taken" && <p className="form-help slug-status form-help-error" role="status">This address is already in use.</p>}
             {slugAvailability === "invalid" && <p className="form-help slug-status form-help-error" role="status">Use 3–40 lowercase letters, numbers, or single hyphens.</p>}
             {slugAvailability === "error" && <p className="form-help slug-status" role="status">Address availability could not be checked. We’ll verify it when you create your shop.</p>}
           </div>
+          <div className="shop-menu-start">
+            <div className="form-field"><label htmlFor="shop-menu-photo">Menu photo (optional)</label><input id="shop-menu-photo" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment"
+              onChange={(event) => { const file = event.target.files?.[0] ?? null; setError(""); setMenuPhoto(file && file.size <= 4 * 1024 * 1024 ? file : null); if (file && file.size > 4 * 1024 * 1024) setError("Menu photos must be 4 MB or smaller."); }} />
+              <p className="form-help">JPEG, PNG, WebP, HEIC, or HEIF · 4 MB max. Photos are sent to Google Cloud for menu reading and are not stored by Yatalk.</p>
+            </div>
+            <div className="sample-menu-choice"><img src="/menu-ocr-sample.png" alt="Sample stall menu with grilled onigiri, iced tea, and mikan jelly" /><div><strong>Try the sample menu</strong><button className="button button-secondary" type="button" onClick={() => void chooseSampleMenu()} disabled={busy}>Use sample photo</button></div></div>
+            {menuPhoto && <p className="form-help" role="status">Selected: {menuPhoto.name}</p>}
+          </div>
+          {status && <p className="form-help" role="status">{status}</p>}
           {error && <Alert>{error}</Alert>}
           <button className="button button-primary" type="submit" disabled={!owner || busy || slugAvailability === "checking" || slugAvailability === "taken" || slugAvailability === "invalid"}>{busy ? "Creating shop…" : "Create shop"}</button>
         </form>
@@ -200,21 +239,108 @@ export function OwnerLoginPage() {
         {error && <Alert>{error}</Alert>}
         <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
       </form>
+      <Link className="back-link" to="/password-reset">Forgot your password?</Link>
       <Link className="back-link" to="/owners/new">Create an owner account</Link>
     </section></main>
   </div>;
 }
 
+export function PasswordResetPage() {
+  const [email, setEmail] = useState("");
+  const [token, setToken] = useState("");
+  const [password, setPassword] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    const value = new URLSearchParams(hash.slice(1)).get("token");
+    if (value) {
+      setToken(value);
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+  }, []);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true); setError(""); setFeedback("");
+    try {
+      if (token) {
+        await post<void>("/api/v1/auth/password-reset/complete", { token, password });
+        setToken(""); setPassword("");
+        setFeedback("Your password has been reset. Sign in with your new password.");
+      } else {
+        const result = await post<{ message: string }>("/api/v1/auth/password-reset/request", { email });
+        setFeedback(result.message);
+      }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "The request could not be completed."); }
+    finally { setBusy(false); }
+  };
+
+  return <div><BrandHeader /><main className="auth-shell"><section className="auth-card" aria-labelledby="password-reset-heading">
+    <span className="auth-symbol"><Store size={22} aria-hidden="true" /></span><p className="eyebrow">Account recovery</p>
+    <h1 id="password-reset-heading">{token ? "Choose a new password" : "Reset your password"}</h1>
+    <p className="auth-intro">{token ? "Use at least 12 characters. This link can only be used once." : "Enter your owner email and we’ll send a reset link if an account matches."}</p>
+    <form onSubmit={(event) => void submit(event)}>
+      {token ? <div className="form-field"><label htmlFor="reset-password">New password</label><input id="reset-password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={password} onChange={(event) => setPassword(event.target.value)} /></div>
+        : <div className="form-field"><label htmlFor="reset-email">Owner email</label><input id="reset-email" type="email" autoComplete="email" maxLength={254} required value={email} onChange={(event) => setEmail(event.target.value)} /></div>}
+      {error && <Alert>{error}</Alert>}{feedback && <p className="auth-feedback" role="status">{feedback}</p>}
+      <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Working…" : token ? "Reset password" : "Send reset link"}</button>
+    </form><Link className="back-link" to="/dashboard/login">Back to sign in</Link>
+  </section></main></div>;
+}
+
+export function VerifyEmailPage() {
+  const [token, setToken] = useState("");
+  const [feedback, setFeedback] = useState("Open your link to confirm your email address.");
+  const [verified, setVerified] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.hash.slice(1)).get("token");
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    if (value) setToken(value);
+    else setFeedback("This verification link is missing or has already been used.");
+  }, []);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!token || busy) return;
+    setBusy(true);
+    try { await post<void>("/api/v1/auth/verification/confirm", { token }); setToken(""); setVerified(true); setFeedback("Your owner email is verified."); }
+    catch (reason) { setFeedback(reason instanceof Error ? reason.message : "This verification link is invalid or expired."); }
+    finally { setBusy(false); }
+  };
+
+  return <div><BrandHeader /><main className="auth-shell"><section className="auth-card" aria-labelledby="verify-email-heading">
+    <span className="auth-symbol"><Store size={22} aria-hidden="true" /></span><p className="eyebrow">Owner account</p><h1 id="verify-email-heading">Email verification</h1>
+    <p className={`auth-feedback ${verified ? "success" : ""}`} role="status">{feedback}</p>
+    {token && !verified && <form onSubmit={(event) => void submit(event)}><button className="button button-primary" type="submit" disabled={busy}>{busy ? "Verifying…" : "Verify email"}</button></form>}
+    <Link className="back-link" to={verified ? "/dashboard/login" : "/dashboard/shops"}>{verified ? "Sign in" : "Go to owner dashboard"}</Link>
+  </section></main></div>;
+}
+
 export function OwnerShopsPage() {
   const [shops, setShops] = useState<ShopSummary[]>([]);
+  const [owner, setOwner] = useState<OwnerSession | null>(null);
   const [error, setError] = useState("");
+  const [verificationFeedback, setVerificationFeedback] = useState("");
   const [loading, setLoading] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const registrationEmailSent = (location.state as { verificationEmailSent?: boolean } | null)?.verificationEmailSent;
+  const canAddShop = shops.length < MAX_FREE_OWNER_SHOPS;
   const load = async () => {
     setLoading(true);
     setError("");
-    try { setShops((await get<{ shops: ShopSummary[] }>("/api/v1/dashboard/shops")).shops); }
+    try {
+      const session = await get<OwnerSession>("/api/v1/auth/session");
+      if (!session.authenticated) { navigate("/dashboard/login", { replace: true }); return; }
+      setOwner(session);
+      setShops((await get<{ shops: ShopSummary[] }>("/api/v1/dashboard/shops")).shops);
+    }
     catch (reason) {
       if (reason instanceof Error && "status" in reason && reason.status === 401) navigate("/dashboard/login", { replace: true });
       else setError(reason instanceof Error ? reason.message : "Your shops could not be loaded.");
@@ -230,10 +356,22 @@ export function OwnerShopsPage() {
     finally { setSigningOut(false); }
   };
 
+  const resendVerification = async () => {
+    setVerificationFeedback("");
+    try {
+      const result = await post<{ emailVerified: boolean; sent: boolean }>("/api/v1/auth/verification/resend", {});
+      setOwner((current) => current ? { ...current, emailVerified: result.emailVerified } : current);
+      setVerificationFeedback(result.emailVerified ? "Your email is already verified." : result.sent
+        ? `Verification link sent to ${owner?.email ?? "your email"}.` : "Email could not be sent. Check the email service configuration and retry.");
+    } catch (reason) { setVerificationFeedback(reason instanceof Error ? reason.message : "Verification email could not be sent."); }
+  };
+
   return <div>
     <BrandHeader eventName="Your shops" />
     <main className="dashboard-main">
-      <div className="dashboard-top"><div><p className="eyebrow">Shop owner</p><h1 className="page-title">Your shops</h1><p className="dashboard-subtitle">Open a storefront or manage its orders and inventory.</p></div><div className="dashboard-actions"><Link className="button button-primary" to="/dashboard/shops/new"><Plus size={16} />Add a shop</Link><button className="text-button" type="button" disabled={signingOut} onClick={() => void signOut()}><LogOut size={15} />{signingOut ? "Signing out…" : "Sign out"}</button></div></div>
+      <div className="dashboard-top"><div><p className="eyebrow">Shop owner</p><h1 className="page-title">Your shops</h1><p className="dashboard-subtitle">Open a storefront or manage its orders and inventory.</p></div><div className="dashboard-actions">{canAddShop ? <Link className="button button-primary" to="/dashboard/shops/new"><Plus size={16} />Add a shop</Link> : <p className="form-help" role="status">Free accounts can create up to {MAX_FREE_OWNER_SHOPS} shops.</p>}<button className="text-button" type="button" disabled={signingOut} onClick={() => void signOut()}><LogOut size={15} />{signingOut ? "Signing out…" : "Sign out"}</button></div></div>
+      {owner && !owner.emailVerified && <section className="verification-banner" aria-labelledby="verification-heading"><div><strong id="verification-heading">Verify your owner email</strong><p>{registrationEmailSent === false ? "We could not send the verification email. You can still create your shop; request a new link after checking the mail service." : "Check your inbox for a verification link. You can create your shop now; verifying helps confirm account ownership."}</p>{verificationFeedback && <p className="form-help" role="status">{verificationFeedback}</p>}</div><button className="button button-secondary" type="button" onClick={() => void resendVerification()}>Resend link</button></section>}
+      {owner?.emailVerified && registrationEmailSent === true && <p className="form-help form-help-success" role="status">Verification email sent. Check your inbox to confirm your address.</p>}
       {loading && <Loading>Loading your shops…</Loading>}
       {error && <Alert onRetry={() => void load()}>{error}</Alert>}
       {!loading && !error && shops.length === 0 && <div className="empty-state"><strong>No shops yet</strong><Link className="text-button" to="/dashboard/shops/new">Create your first shop</Link></div>}

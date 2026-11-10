@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import { MAX_FREE_OWNER_SHOPS } from "../../shared/owner-limits.js";
 import { createFirestoreDatabase } from "../../server/firestore-bootstrap.js";
 import { findOrder } from "../../server/order-state.js";
-import { FakePayPal, json, origin, postHeaders, withFirestoreServer } from "./support.js";
+import { FakeEmailSender, FakePayPal, json, origin, postHeaders, withFirestoreServer } from "./support.js";
 
 const webhookHeaders = {
   "content-type": "application/json", "paypal-auth-algo": "test", "paypal-cert-url": "https://example.test/cert",
@@ -16,6 +17,7 @@ test("Firestore stores owner shops, currency, menu, cart, PayPal state, refunds,
   const paypal = new FakePayPal();
   paypal.failFirstRefund = true;
   const projectId = `yatalk-test-${randomUUID().slice(0, 8)}`;
+  const mailer = new FakeEmailSender();
   await withFirestoreServer(paypal, async (url, db) => {
     const suffix = Math.random().toString(36).slice(2, 10);
     const ownerSlug = `owner-${suffix}`;
@@ -26,13 +28,36 @@ test("Firestore stores owner shops, currency, menu, cart, PayPal state, refunds,
       body: JSON.stringify({ displayName: "Firestore owner", ownerSlug, email, password: "a-test-password-123", defaultCurrency: "USD" }),
     });
     assert.equal(registration.response.status, 201);
+    assert.equal(registration.body.verificationEmailSent, true);
     const ownerCookie = registration.response.headers.get("set-cookie")!.split(";", 1)[0]!;
+    const verificationMessage = mailer.messages[0]!;
+    const verificationToken = new URL(verificationMessage.text.match(/https?:\/\/\S+/)![0]!).hash.slice("#token=".length);
+    const ownerTokens = await db.firestoreStore.query("ownerTokens", [{ field: "purpose", op: "==", value: "verify_email" }]);
+    assert.equal(ownerTokens.length, 1);
+    assert.equal(typeof (ownerTokens[0]?.expiresAtTtl as { toDate?: () => Date })?.toDate, "function");
+    const verified = await fetch(`${url}/api/v1/auth/verification/confirm`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ token: verificationToken }),
+    });
+    assert.equal(verified.status, 204);
 
     const createdShop = await json(`${url}/api/v1/dashboard/shops`, {
       method: "POST", headers: postHeaders(ownerCookie), body: JSON.stringify({ name: "Cloud Stall", slug: shopSlug }),
     });
     assert.equal(createdShop.response.status, 201);
     assert.equal(createdShop.body.shop.currency, "USD");
+    for (let index = 2; index <= MAX_FREE_OWNER_SHOPS; index += 1) {
+      const additional = await json(`${url}/api/v1/dashboard/shops`, {
+        method: "POST", headers: postHeaders(ownerCookie),
+        body: JSON.stringify({ name: `Cloud Stall ${index}`, slug: `cloud-stall-${index}-${suffix}` }),
+      });
+      assert.equal(additional.response.status, 201);
+    }
+    const overLimit = await json(`${url}/api/v1/dashboard/shops`, {
+      method: "POST", headers: postHeaders(ownerCookie),
+      body: JSON.stringify({ name: "Extra cloud stall", slug: `cloud-stall-extra-${suffix}` }),
+    });
+    assert.equal(overLimit.response.status, 409);
+    assert.equal(overLimit.body.error.code, "shop_limit_reached");
 
     const dashboard = `${url}/api/v1/dashboard/${ownerSlug}/${shopSlug}`;
     const products = await json(`${dashboard}/products/bulk`, {
@@ -113,17 +138,23 @@ test("Firestore stores owner shops, currency, menu, cart, PayPal state, refunds,
     assert.equal(summary.body.metrics.grossSalesMinor, 1234);
     assert.equal(summary.body.metrics.netSalesMinor, 0);
     assert.equal(summary.body.metrics.paidOrderCount, 0);
+    const received = await json(`${dashboard}/products/${productId}/receive`, {
+      method: "POST", headers: postHeaders(ownerCookie), body: JSON.stringify({ quantity: 2, receiptId: randomUUID() }),
+    });
+    assert.equal(received.response.status, 200);
+    assert.equal(received.body.product.stockOnHand, 3);
+    assert.equal(received.body.applied, true);
     const restartedDb = createFirestoreDatabase(projectId);
     try {
       const persistedOrder = await findOrder(restartedDb, createdOrder.body.orderId, shopRows[0]!.id);
       const persistedProduct = await restartedDb.firestoreStore.get<{ stockOnHand: number } & Record<string, unknown>>("products", productId);
       assert.equal(persistedOrder?.state, "refunded");
-      assert.equal(persistedProduct?.stockOnHand, 1);
+      assert.equal(persistedProduct?.stockOnHand, 3);
     } finally {
       await restartedDb.firestoreStore.client.terminate();
       restartedDb.close();
     }
-  }, undefined, projectId);
+  }, undefined, projectId, mailer);
 });
 
 test("Firestore transactions reserve one unit only once when checkouts race", {

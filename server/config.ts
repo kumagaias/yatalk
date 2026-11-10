@@ -22,6 +22,9 @@ export interface AppConfig {
   geminiModel: string;
   adminAccessCode: string | null;
   adminSessionSecret: string | null;
+  resendApiKey: string | null;
+  resendFromEmail: string | null;
+  shopImageBucket: string | null;
 }
 
 function optionalSecret(value: string | undefined): string | null {
@@ -78,6 +81,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (!/^[a-z0-9][a-z0-9.-]{0,127}$/.test(geminiModel)) throw new Error("GEMINI_MODEL is invalid");
   const databaseBackend = env.DATABASE_BACKEND?.trim() || (nodeEnv === "production" ? "firestore" : "sqlite");
   if (databaseBackend !== "sqlite" && databaseBackend !== "firestore") throw new Error("DATABASE_BACKEND must be sqlite or firestore");
+  const resendFromEmail = env.RESEND_FROM_EMAIL?.trim() || null;
+  if (resendFromEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resendFromEmail)) throw new Error("RESEND_FROM_EMAIL is invalid");
+  const shopImageBucket = env.SHOP_IMAGE_BUCKET?.trim() || null;
+  if (shopImageBucket && !/^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$/.test(shopImageBucket)) throw new Error("SHOP_IMAGE_BUCKET is invalid");
 
   return {
     nodeEnv,
@@ -97,5 +104,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     geminiModel,
     adminAccessCode,
     adminSessionSecret,
+    resendApiKey: optionalSecret(env.RESEND_API_KEY),
+    resendFromEmail,
+    shopImageBucket,
   };
 }

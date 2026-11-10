@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowUpRight, CircleHelp, LogOut, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import type { OrganizerProduct, OrganizerSummary, Order } from "../types";
 import { ApiError, del, get, patch, post } from "../lib/api";
 import { money } from "../lib/format";
@@ -10,10 +10,13 @@ import { MenuSetupCard } from "../components/MenuSetupCard";
 import { ShopQRCodeCard } from "../components/ShopQRCodeCard";
 import { Alert, Loading } from "../components/Feedback";
 import { OwnerAssistantPanel } from "../components/OwnerAssistantPanel";
+import { ShopImageCard } from "../components/ShopImageCard";
 import type { MenuExtraction } from "../../shared/schemas.js";
 import { parseAmountToMinor } from "../../shared/currency.js";
 
 export function DashboardPage() {
+  const location = useLocation();
+  const setupState = location.state as { initialPhotoSuggestions?: MenuExtraction["items"]; initialPhotoError?: string } | null;
   const [summary, setSummary] = useState<OrganizerSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -26,6 +29,8 @@ export function DashboardPage() {
   const [refundDetailLoading, setRefundDetailLoading] = useState<Record<string, boolean>>({});
   const [refundDetailError, setRefundDetailError] = useState<Record<string, string>>({});
   const [assistantSuggestions, setAssistantSuggestions] = useState<MenuExtraction["items"] | null>(null);
+  const [assistantSuggestionSource, setAssistantSuggestionSource] = useState<"assistant" | "photo">("assistant");
+  const [initialPhotoError, setInitialPhotoError] = useState("");
   const [menuDraftContext, setMenuDraftContext] = useState<MenuExtraction["items"]>([]);
   const [signingOut, setSigningOut] = useState(false);
   const navigate = useNavigate();
@@ -35,8 +40,21 @@ export function DashboardPage() {
   const shopName = summary?.shop?.name ?? "Little Harbor Market";
   const currency = summary?.shop?.currency ?? "JPY";
 
-  const clearAssistantSuggestions = useCallback(() => setAssistantSuggestions(null), []);
+  const clearAssistantSuggestions = useCallback(() => {
+    setAssistantSuggestions(null);
+    setAssistantSuggestionSource("assistant");
+  }, []);
+  const addAssistantSuggestions = useCallback((items: MenuExtraction["items"]) => {
+    setAssistantSuggestionSource("assistant");
+    setAssistantSuggestions(items);
+  }, []);
   const updateMenuDraftContext = useCallback((items: MenuExtraction["items"]) => setMenuDraftContext(items), []);
+
+  useEffect(() => {
+    setAssistantSuggestions(setupState?.initialPhotoSuggestions ?? null);
+    setAssistantSuggestionSource(setupState?.initialPhotoSuggestions ? "photo" : "assistant");
+    setInitialPhotoError(setupState?.initialPhotoError ?? "");
+  }, [location.key, location.state]);
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
@@ -81,6 +99,28 @@ export function DashboardPage() {
       await loadSummary();
     } catch (error) {
       setProductFeedback((value) => ({ ...value, [product.id]: error instanceof Error ? error.message : "Save failed. Your entries are still here." }));
+    } finally { setSaving(null); }
+  };
+
+  const receiveStock = async (productId: string, quantity: number, receiptId: string): Promise<"received" | "cancelled" | "unknown" | "failed"> => {
+    const product = summary?.products.find((item) => item.id === productId);
+    if (!product || !window.confirm(`Have you physically received ${quantity} additional ${product.name}? This adds those units to shop inventory.`)) return "cancelled";
+    setSaving(productId);
+    setProductFeedback((value) => ({ ...value, [productId]: "" }));
+    try {
+      const result = await post<{ product: OrganizerProduct; applied: boolean }>(`/api/organizer/products/${encodeURIComponent(productId)}/receive`, { quantity, receiptId });
+      setSummary((current) => current ? { ...current, products: current.products.map((item) => item.id === productId ? result.product : item) } : current);
+      setProductFeedback((value) => ({ ...value, [productId]: result.applied ? `Saved · received ${quantity} units` : "Saved · receipt was already applied" }));
+      return "received";
+    } catch (error) {
+      const uncertain = !(error instanceof ApiError) || error.status === 0 || error.status >= 500;
+      if (uncertain) {
+        try { setSummary(await get<OrganizerSummary>("/api/organizer/summary")); } catch { /* Keep the current summary when the status check also fails. */ }
+        setProductFeedback((value) => ({ ...value, [productId]: "Could not confirm the receipt. Check current stock before retrying." }));
+        return "unknown";
+      }
+      setProductFeedback((value) => ({ ...value, [productId]: error instanceof Error ? error.message : "Could not update stock. Retry from the inventory table." }));
+      return "failed";
     } finally { setSaving(null); }
   };
 
@@ -174,12 +214,14 @@ export function DashboardPage() {
                 </div>}
               </section>
               <MenuSetupCard onSaved={loadSummary} currency={currency} assistantSuggestions={assistantSuggestions}
+                assistantSuggestionSource={assistantSuggestionSource} initialError={initialPhotoError}
                 onAssistantSuggestionsAdded={clearAssistantSuggestions} onDraftContextChange={updateMenuDraftContext} />
               <InventoryCard products={summary.products} saving={saving} feedback={productFeedback} onSave={saveProduct} />
             </div>
             <div className="dashboard-column">
+              {publicOwnerSlug && summary.shop?.slug && <ShopImageCard key={summary.shop.slug} ownerSlug={publicOwnerSlug} shopSlug={summary.shop.slug} shopName={shopName} enabled={!!summary.shopImageEnabled} />}
               <ShopQRCodeCard shopSlug={summary.shop?.slug ?? shopSlug ?? "little-harbor-market"} ownerSlug={publicOwnerSlug} />
-              <OwnerAssistantPanel currency={currency} draft={menuDraftContext} onAddToMenu={setAssistantSuggestions} />
+              <OwnerAssistantPanel currency={currency} draft={menuDraftContext} onAddToMenu={addAssistantSuggestions} onReceiveStock={receiveStock} />
               <section className="dashboard-card service-note"><div className="section-heading"><div><p className="eyebrow">Pickup reminder</p><h2>Keep the line moving</h2></div><CircleHelp size={20} aria-hidden="true" /></div><p>Confirm the pickup code with the guest before marking an order collected. Only paid, uncollected orders can be refunded.</p><Link to={shopUrl} className="text-button">Preview the market <ArrowUpRight size={14} aria-hidden="true" /></Link></section>
             </div>
           </div>

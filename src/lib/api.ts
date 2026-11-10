@@ -82,6 +82,11 @@ export const postImage = <T,>(path: string, image: File) => requestJson<T>(path,
   body: image,
   headers: { "Content-Type": image.type },
 });
+export const putImage = <T,>(path: string, image: File) => requestJson<T>(path, {
+  method: "PUT",
+  body: image,
+  headers: { "Content-Type": image.type },
+});
 export const patch = <T,>(path: string, body: unknown) => requestJson<T>(path, {
   method: "PATCH",
   body: JSON.stringify(body),

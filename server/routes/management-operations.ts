@@ -3,7 +3,8 @@ import type { AppConfig } from "../config.js";
 import type { Db } from "../database.js";
 import { ApiError } from "../errors.js";
 import { organizerFacts, organizerSummary } from "../analytics.js";
-import { createProducts, patchProduct } from "../inventory.js";
+import { createProducts, patchProduct, receiveProductStock } from "../inventory.js";
+import { buildRestockPlan, isInventoryQuestion } from "../restock-plan.js";
 import { requireExactOrigin, organizerRateKey } from "../security.js";
 import { createRateLimit } from "../rate-limit.js";
 import { parseBody, requireJson, requireEmptyBody, routeParam } from "../http.js";
@@ -11,7 +12,7 @@ import { logStage } from "../logging.js";
 import { adminOrder, audit, collectOrder, refundOrder } from "../services/orders.js";
 import type { AiProvider } from "../services/ai.js";
 import type { PayPalProvider } from "../services/paypal.js";
-import { createProductsRequestSchema, menuAssistantRequestSchema, menuAssistantResponseSchema, menuExtractionSchema, organizerQuestionSchema, productPatchSchema, refundRequestSchema } from "../../shared/schemas.js";
+import { createProductsRequestSchema, menuAssistantRequestSchema, menuAssistantResponseSchema, menuExtractionSchema, organizerQuestionSchema, productPatchSchema, receiveStockSchema, refundRequestSchema } from "../../shared/schemas.js";
 import { detectMenuImageMimeType, MAX_MENU_IMAGE_BYTES, MENU_IMAGE_MIME_TYPES, type MenuImageMimeType } from "../menu-image.js";
 
 const menuScansInFlight = new Set<string>();
@@ -32,7 +33,8 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
   router.get("/summary", async (request, response) => {
     const shopId = shopIdOf(request);
     response.json({ shop: request.shop ? { slug: request.shop.slug, ownerSlug: request.shop.ownerSlug, name: request.shop.name, currency: request.shop.currency, status: request.shop.status } : undefined,
-      ...await organizerSummary(db, request.shop?.timeZone ?? config.eventTimeZone, shopId) });
+      ...await organizerSummary(db, request.shop?.timeZone ?? config.eventTimeZone, shopId),
+      shopImageEnabled: !!config.shopImageBucket });
   });
 
   router.get("/orders/:id", async (request, response) => {
@@ -91,6 +93,15 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
     response.json(product);
   });
 
+  router.post("/products/:id/receive", originOnly, mutationLimit, async (request, response) => {
+    requireJson(request);
+    const { quantity, receiptId } = parseBody(receiveStockSchema, request);
+    const shopId = shopIdOf(request);
+    const receipt = await receiveProductStock(db, routeParam(request, "id"), quantity, receiptId, shopId);
+    if (receipt.applied) await audit(db, "product_stock_received", receipt.product.id, { quantity, stockOnHand: receipt.product.stockOnHand }, shopId, actorIdOf(request));
+    response.json(receipt);
+  });
+
   router.post("/orders/:id/collect", originOnly, mutationLimit, async (request, response) => {
     requireEmptyBody(request);
     const id = routeParam(request, "id");
@@ -121,13 +132,25 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
     requireJson(request);
     const { question } = parseBody(organizerQuestionSchema, request);
     const shopId = shopIdOf(request);
-    const sourceFacts = await organizerFacts(db, request.shop?.timeZone ?? config.eventTimeZone, new Date(), shopId);
+    const includeSalesTrend = isInventoryQuestion(question);
+    const sourceFacts = await organizerFacts(db, request.shop?.timeZone ?? config.eventTimeZone, new Date(), shopId, { includeSalesTrend });
+    const restockCandidates = includeSalesTrend ? buildRestockPlan(sourceFacts.products, sourceFacts.unitsSoldLast7Days) : [];
     logStage(request.requestId, "gemini_organizer_answer", "start");
     try {
-      const answer = await ai.explainFacts(question, sourceFacts);
-      if (typeof answer !== "string" || answer.length > 500) throw new Error("Invalid model response");
+      const result = await ai.explainFacts(question, { ...sourceFacts, restockCandidates });
+      if (!result || typeof result.answer !== "string" || result.answer.length > 500 || !Array.isArray(result.restockPriorityIds)) {
+        throw new Error("Invalid model response");
+      }
+      const candidateById = new Map(restockCandidates.map((item) => [item.id, item]));
+      const seen = new Set<string>();
+      const orderedCandidates = [...result.restockPriorityIds, ...restockCandidates.map(({ id }) => id)].flatMap((id) => {
+        const item = candidateById.get(id);
+        if (!item || seen.has(id) || seen.size >= 5) return [];
+        seen.add(id);
+        return [item];
+      });
       logStage(request.requestId, "gemini_organizer_answer", "success");
-      response.json({ answer, sourceFacts });
+      response.json({ answer: result.answer, inventoryPriority: orderedCandidates, sourceFacts });
     } catch (error) {
       logStage(request.requestId, "gemini_organizer_answer", "failure", error);
       throw new ApiError(503, "assistant_unavailable", "The assistant is unavailable. The dashboard remains available.");

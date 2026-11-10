@@ -30,15 +30,26 @@ export function eventDayBounds(now: Date, timeZone: string): { start: string; en
   };
 }
 
-export function organizerFacts(db: FirestoreDb, timeZone: string, now?: Date, shopId?: string): ReturnType<typeof firestoreAnalytics.organizerFacts>;
-export function organizerFacts(db: SqliteDb, timeZone: string, now?: Date, shopId?: string): ReturnType<typeof organizerFactsSqlite>;
-export function organizerFacts(db: Db, timeZone: string, now?: Date, shopId?: string): ReturnType<typeof organizerFactsSqlite> | ReturnType<typeof firestoreAnalytics.organizerFacts>;
-export function organizerFacts(db: Db, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID) {
-  if ((db as FirestoreDb).firestoreBrand) return firestoreAnalytics.organizerFacts(db as FirestoreDb, timeZone, now, shopId);
-  return organizerFactsSqlite(db as SqliteDb, timeZone, now, shopId);
+export function eventDayWindowBounds(now: Date, timeZone: string, days: number): { start: string; end: string } {
+  const day = wallClockParts(now, timeZone);
+  const firstDay = new Date(Date.UTC(day.year, day.month - 1, day.day - Math.max(1, Math.floor(days)) + 1));
+  return {
+    start: utcForWallTime(firstDay.getUTCFullYear(), firstDay.getUTCMonth() + 1, firstDay.getUTCDate(), timeZone).toISOString(),
+    end: now.toISOString(),
+  };
 }
 
-function organizerFactsSqlite(db: SqliteDb, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID) {
+export type OrganizerFactsOptions = { includeSalesTrend?: boolean };
+
+export function organizerFacts(db: FirestoreDb, timeZone: string, now?: Date, shopId?: string, options?: OrganizerFactsOptions): ReturnType<typeof firestoreAnalytics.organizerFacts>;
+export function organizerFacts(db: SqliteDb, timeZone: string, now?: Date, shopId?: string, options?: OrganizerFactsOptions): ReturnType<typeof organizerFactsSqlite>;
+export function organizerFacts(db: Db, timeZone: string, now?: Date, shopId?: string, options?: OrganizerFactsOptions): ReturnType<typeof organizerFactsSqlite> | ReturnType<typeof firestoreAnalytics.organizerFacts>;
+export function organizerFacts(db: Db, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID, options: OrganizerFactsOptions = {}) {
+  if ((db as FirestoreDb).firestoreBrand) return firestoreAnalytics.organizerFacts(db as FirestoreDb, timeZone, now, shopId, options);
+  return organizerFactsSqlite(db as SqliteDb, timeZone, now, shopId, options);
+}
+
+function organizerFactsSqlite(db: SqliteDb, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID, options: OrganizerFactsOptions = {}) {
   const bounds = eventDayBounds(now, timeZone);
   const localDay = wallClockParts(now, timeZone);
   const shop = db.prepare("SELECT currency FROM shops WHERE id = ?").get(shopId) as { currency: string };
@@ -58,7 +69,12 @@ function organizerFactsSqlite(db: SqliteDb, timeZone: string, now = new Date(), 
   const soldRows = db.prepare(`SELECT oi.product_id AS id, oi.display_name AS name, SUM(oi.quantity) AS units_sold
     FROM order_items oi JOIN orders o ON o.id = oi.order_id
     WHERE o.shop_id = ? AND oi.shop_id = ? AND o.captured_at >= ? AND o.captured_at < ? AND o.state IN ('paid', 'collected', 'refund_unknown')
-    GROUP BY oi.product_id, oi.display_name ORDER BY units_sold DESC, name COLLATE NOCASE`).all(shopId, shopId, bounds.start, bounds.end) as Array<{ id: string; name: string; units_sold: number }>;
+    GROUP BY oi.product_id ORDER BY units_sold DESC, name COLLATE NOCASE`).all(shopId, shopId, bounds.start, bounds.end) as Array<{ id: string; name: string; units_sold: number }>;
+  const salesWindow = options.includeSalesTrend ? eventDayWindowBounds(now, timeZone, 7) : null;
+  const unitsSoldLast7Days = salesWindow ? db.prepare(`SELECT oi.product_id AS id, oi.display_name AS name, SUM(oi.quantity) AS units_sold
+    FROM order_items oi JOIN orders o ON o.id = oi.order_id
+    WHERE o.shop_id = ? AND oi.shop_id = ? AND o.captured_at >= ? AND o.captured_at < ? AND o.state IN ('paid', 'collected', 'refund_unknown')
+    GROUP BY oi.product_id ORDER BY units_sold DESC, name COLLATE NOCASE`).all(shopId, shopId, salesWindow.start, salesWindow.end) as Array<{ id: string; name: string; units_sold: number }> : [];
   const lowStock = products.filter((product) => product.available <= 5);
   return {
     date: `${localDay.year}-${String(localDay.month).padStart(2, "0")}-${String(localDay.day).padStart(2, "0")}`, timeZone, currency: shop.currency,
@@ -70,6 +86,7 @@ function organizerFactsSqlite(db: SqliteDb, timeZone: string, now = new Date(), 
     lowStockItems: lowStock,
     products,
     unitsSold: soldRows,
+    unitsSoldLast7Days,
   };
 }
 

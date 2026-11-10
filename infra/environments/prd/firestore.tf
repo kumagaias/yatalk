@@ -93,6 +93,22 @@ resource "google_firestore_index" "products_shop_active" {
   }
 }
 
+resource "google_firestore_index" "owner_tokens_user_purpose" {
+  project     = var.project_id
+  database    = google_firestore_database.default.name
+  collection  = "ownerTokens"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "userId"
+    order      = "ASCENDING"
+  }
+  fields {
+    field_path = "purpose"
+    order      = "ASCENDING"
+  }
+}
+
 resource "google_firestore_field" "visitor_session_expiry" {
   project    = var.project_id
   database   = google_firestore_database.default.name
@@ -113,6 +129,14 @@ resource "google_firestore_field" "cart_item_expiry" {
   project    = var.project_id
   database   = google_firestore_database.default.name
   collection = "cartItems"
+  field      = "expiresAtTtl"
+  ttl_config {}
+}
+
+resource "google_firestore_field" "owner_token_expiry" {
+  project    = var.project_id
+  database   = google_firestore_database.default.name
+  collection = "ownerTokens"
   field      = "expiresAtTtl"
   ttl_config {}
 }

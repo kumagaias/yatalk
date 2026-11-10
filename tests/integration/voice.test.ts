@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AiProvider } from "../../server/services/ai.js";
 import { overlongWebmSample, syntheticWebm } from "../fixtures/audio.js";
-import { FakePayPal, json, origin, visitorSession, withServer } from "./support.js";
+import { FakePayPal, json, origin, postHeaders, visitorSession, withServer } from "./support.js";
 
 test("voice transcription validates origin, session, media format, and recording length", async () => {
   await withServer(new FakePayPal(), async (url) => {
@@ -34,6 +34,37 @@ test("voice transcription validates origin, session, media format, and recording
   });
 });
 
+test("nested owner storefront voice requests reach the audio validator above the generic body limit", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const ownerSlug = `voice-owner-${suffix}`;
+    const shopSlug = `voice-shop-${suffix}`;
+    const registration = await json(`${url}/api/v1/owners`, {
+      method: "POST", headers: { origin, "content-type": "application/json" },
+      body: JSON.stringify({ displayName: "Voice owner", ownerSlug, email: `${suffix}@example.test`,
+        password: "a-test-password-123", defaultCurrency: "JPY" }),
+    });
+    assert.equal(registration.response.status, 201);
+    const ownerCookie = registration.response.headers.get("set-cookie")?.split(";", 1)[0];
+    assert.ok(ownerCookie);
+    const created = await json(`${url}/api/v1/dashboard/shops`, {
+      method: "POST", headers: postHeaders(ownerCookie!), body: JSON.stringify({ name: "Voice Shop", slug: shopSlug }),
+    });
+    assert.equal(created.response.status, 201);
+
+    const storefront = `/api/v1/owners/${ownerSlug}/shops/${shopSlug}`;
+    const visitor = await json(`${url}${storefront}/cart`);
+    const visitorCookie = visitor.response.headers.get("set-cookie")?.split(";", 1)[0];
+    assert.ok(visitorCookie);
+    const largeMalformedAudio = await json(`${url}${storefront}/voice/transcribe`, {
+      method: "POST", headers: { cookie: visitorCookie!, origin, "content-type": "audio/webm" },
+      body: new Uint8Array(40 * 1024),
+    });
+    assert.equal(largeMalformedAudio.response.status, 400);
+    assert.equal(largeMalformedAudio.body.error.code, "invalid_audio");
+  });
+});
+
 test("voice transcription has an IP-wide limit across visitor sessions", async () => {
   await withServer(new FakePayPal(), async (url) => {
     const visitors = await Promise.all(Array.from({ length: 3 }, () => visitorSession(url)));
@@ -51,7 +82,7 @@ test("voice transcription has an IP-wide limit across visitor sessions", async (
 test("voice route returns a retry message when a valid clip contains no clear speech", async () => {
   const noSpeechAi: AiProvider = {
     async interpretCart() { return { reply: "", clarification: null, operations: [] }; },
-    async explainFacts() { return ""; },
+    async explainFacts() { return { answer: "", restockPriorityIds: [] }; },
     async assistMenu() { return { reply: "I can help draft menu items.", suggestions: [] }; },
     async transcribeAudio() { return ""; },
     async extractMenu() { return { items: [] }; },

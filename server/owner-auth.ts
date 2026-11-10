@@ -84,7 +84,7 @@ export function clearOwnerSession(db: Db, request: Request, response: Response, 
   response.append("Set-Cookie", `${OWNER_COOKIE}=; ${cookieOptions(config, 0)}`);
 }
 
-export type OwnerAccount = { id: string; email: string; displayName: string; ownerSlug: string | null; defaultCurrency: import("../shared/currency.js").CurrencyCode };
+export type OwnerAccount = { id: string; email: string; displayName: string; ownerSlug: string | null; defaultCurrency: import("../shared/currency.js").CurrencyCode; emailVerified: boolean };
 export function ownerFromRequest(db: FirestoreDb, request: Request): Promise<OwnerAccount | undefined>;
 export function ownerFromRequest(db: SqliteDb, request: Request): OwnerAccount | undefined;
 export function ownerFromRequest(db: Db, request: Request): OwnerAccount | undefined | Promise<OwnerAccount | undefined>;
@@ -92,11 +92,11 @@ export function ownerFromRequest(db: Db, request: Request): OwnerAccount | undef
   const token = getCookie(request, OWNER_COOKIE);
   if (!token || !/^[A-Za-z0-9_-]{40,64}$/.test(token)) return undefined;
   if ((db as FirestoreDb).firestoreBrand) return firestoreOwnerFromRequest(db as FirestoreDb, token);
-  const row = db.prepare(`SELECT users.id, users.email, users.display_name, users.owner_slug, users.default_currency FROM owner_sessions
+  const row = db.prepare(`SELECT users.id, users.email, users.display_name, users.owner_slug, users.default_currency, users.email_verified FROM owner_sessions
     JOIN users ON users.id = owner_sessions.user_id
     WHERE owner_sessions.token_hash = ? AND owner_sessions.expires_at > ?`)
-    .get(digest(token), new Date().toISOString()) as { id: string; email: string; display_name: string; owner_slug: string | null; default_currency: import("../shared/currency.js").CurrencyCode } | undefined;
-  return row ? { id: row.id, email: row.email, displayName: row.display_name, ownerSlug: row.owner_slug, defaultCurrency: row.default_currency } : undefined;
+    .get(digest(token), new Date().toISOString()) as { id: string; email: string; display_name: string; owner_slug: string | null; default_currency: import("../shared/currency.js").CurrencyCode; email_verified: number } | undefined;
+  return row ? { id: row.id, email: row.email, displayName: row.display_name, ownerSlug: row.owner_slug, defaultCurrency: row.default_currency, emailVerified: row.email_verified === 1 } : undefined;
 }
 
 export function requireOwner(db: Db) {
@@ -144,7 +144,7 @@ export const ownerCookieName = OWNER_COOKIE;
 async function firestoreOwnerFromRequest(db: FirestoreDb, token: string): Promise<OwnerAccount | undefined> {
   const session = await db.firestoreStore.get<{ userId: string; expiresAt: string } & Record<string, unknown>>("ownerSessions", digest(token));
   if (!session || session.expiresAt <= new Date().toISOString()) return undefined;
-  const user = await db.firestoreStore.get<{ email: string; displayName: string; ownerSlug: string; defaultCurrency: OwnerAccount["defaultCurrency"] } & Record<string, unknown>>("users", session.userId);
+  const user = await db.firestoreStore.get<{ email: string; displayName: string; ownerSlug: string; defaultCurrency: OwnerAccount["defaultCurrency"]; emailVerified?: boolean } & Record<string, unknown>>("users", session.userId);
   return user ? { id: session.userId, email: user.email, displayName: user.displayName, ownerSlug: user.ownerSlug,
-    defaultCurrency: user.defaultCurrency } : undefined;
+    defaultCurrency: user.defaultCurrency, emailVerified: user.emailVerified ?? true } : undefined;
 }

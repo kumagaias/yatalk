@@ -227,6 +227,42 @@ export function patchProduct(db: Db, productId: string, patch: ProductPatch, sho
   return transaction.immediate();
 }
 
+export type StockReceiptResult = { product: Product; applied: boolean };
+
+export function receiveProductStock(db: FirestoreDb, productId: string, quantity: number, receiptId: string, shopId?: string): Promise<StockReceiptResult>;
+export function receiveProductStock(db: SqliteDb, productId: string, quantity: number, receiptId: string, shopId?: string): StockReceiptResult;
+export function receiveProductStock(db: Db, productId: string, quantity: number, receiptId: string, shopId?: string): StockReceiptResult | Promise<StockReceiptResult>;
+export function receiveProductStock(db: Db, productId: string, quantity: number, receiptId: string, shopId = DEFAULT_SHOP_ID): StockReceiptResult | Promise<StockReceiptResult> {
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999) {
+    throw new ApiError(400, "invalid_received_quantity", "Received quantity must be a whole number between 1 and 999.");
+  }
+  if ((db as FirestoreDb).firestoreBrand) return firestoreInventory.receiveProductStock(db as FirestoreDb, productId, quantity, receiptId, shopId);
+  const transaction = db.transaction(() => {
+    const existing = db.prepare("SELECT shop_id, product_id, quantity FROM inventory_receipts WHERE id = ?").get(receiptId) as
+      { shop_id: string; product_id: string; quantity: number } | undefined;
+    if (existing) {
+      if (existing.shop_id !== shopId || existing.product_id !== productId || existing.quantity !== quantity) {
+        throw new ApiError(409, "stock_receipt_conflict", "This receipt has already been applied with different details.");
+      }
+      const product = getProduct(db as SqliteDb, productId, shopId);
+      if (!product) throw new ApiError(404, "product_not_found", "Product was not found.");
+      return { product, applied: false };
+    }
+    const product = getProduct(db as SqliteDb, productId, shopId);
+    if (!product) throw new ApiError(404, "product_not_found", "Product was not found.");
+    const stockOnHand = product.stockOnHand + quantity;
+    if (stockOnHand > 999) throw new ApiError(400, "stock_limit", "Stock cannot exceed 999 units.");
+    const now = new Date().toISOString();
+    db.prepare("UPDATE products SET stock_on_hand = ?, updated_at = ? WHERE id = ? AND shop_id = ?")
+      .run(stockOnHand, now, productId, shopId);
+    db.prepare("INSERT INTO inventory_receipts(id, shop_id, product_id, quantity, stock_on_hand, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(receiptId, shopId, productId, quantity, stockOnHand, now);
+    incrementCatalogRevision(db as SqliteDb, shopId);
+    return { product: getProduct(db as SqliteDb, productId, shopId)!, applied: true };
+  });
+  return transaction.immediate();
+}
+
 export function currentCatalogRevision(db: FirestoreDb, shopId?: string): Promise<number>;
 export function currentCatalogRevision(db: SqliteDb, shopId?: string): number;
 export function currentCatalogRevision(db: Db, shopId?: string): number | Promise<number>;

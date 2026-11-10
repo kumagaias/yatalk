@@ -182,3 +182,33 @@ export async function patchProduct(db: FirestoreDb, productId: string, patch: Pr
     return asProduct({ ...row, ...changes } as ProductDoc);
   });
 }
+
+export async function receiveProductStock(db: FirestoreDb, productId: string, quantity: number, receiptId: string, shopId: string): Promise<{ product: Product; applied: boolean }> {
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999) {
+    throw new ApiError(400, "invalid_received_quantity", "Received quantity must be a whole number between 1 and 999.");
+  }
+  return db.firestoreStore.runTransaction(async (transaction) => {
+    const receipt = await transaction.get<FirestoreDocument>("inventoryReceipts", receiptId);
+    if (receipt) {
+      if (receipt.shopId !== shopId || receipt.productId !== productId || receipt.quantity !== quantity) {
+        throw new ApiError(409, "stock_receipt_conflict", "This receipt has already been applied with different details.");
+      }
+      const current = await transaction.get<ProductDoc>("products", productId);
+      if (!current || current.shopId !== shopId) throw new ApiError(404, "product_not_found", "Product was not found.");
+      return { product: asProduct(current), applied: false };
+    }
+    const [row, shop] = await Promise.all([
+      transaction.get<ProductDoc>("products", productId),
+      transaction.get<ShopDoc>("shops", shopId),
+    ]);
+    if (!row || row.shopId !== shopId) throw new ApiError(404, "product_not_found", "Product was not found.");
+    if (!shop) throw new ApiError(404, "shop_not_found", "The requested shop was not found.");
+    const stockOnHand = row.stockOnHand + quantity;
+    if (stockOnHand > 999) throw new ApiError(400, "stock_limit", "Stock cannot exceed 999 units.");
+    const updatedAt = new Date().toISOString();
+    transaction.update("products", productId, { stockOnHand, updatedAt });
+    transaction.update("shops", shopId, { catalogRevision: shop.catalogRevision + 1, updatedAt });
+    transaction.create("inventoryReceipts", receiptId, { shopId, productId, quantity, stockOnHand, createdAt: updatedAt });
+    return { product: asProduct({ ...row, stockOnHand, updatedAt }), applied: true };
+  });
+}

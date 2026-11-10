@@ -12,7 +12,7 @@ async function register(url: string, shopSlug: string, suffix: string, currency:
   const cookie = registration.response.headers.get("set-cookie")?.split(";")[0];
   assert.ok(cookie?.startsWith("yatalk_owner="));
   const owner = await json(`${url}/api/v1/auth/session`, { headers: { cookie: cookie! } });
-  assert.deepEqual(owner.body, { authenticated: true, email: `${suffix}@example.test`, displayName: `Owner ${suffix}`, ownerSlug, defaultCurrency: currency });
+  assert.deepEqual(owner.body, { authenticated: true, email: `${suffix}@example.test`, displayName: `Owner ${suffix}`, ownerSlug, defaultCurrency: currency, emailVerified: false });
   const shop = await json(`${url}/api/v1/dashboard/shops`, {
     method: "POST", headers: postHeaders(cookie!), body: JSON.stringify({ name: `Shop ${shopSlug}`, slug: shopSlug }),
   });

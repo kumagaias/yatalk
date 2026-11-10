@@ -54,6 +54,10 @@ The preview grants public invocation and its Gemini routes incur Vertex AI usage
 
 Terraform creates PayPal and organizer secret metadata only; it never manages secret payloads or versions. The Cloud Run runtime service account can read the two PayPal client secrets, the webhook ID when `enable_paypal_webhook` is true, and the two organizer secrets when `enable_organizer_access` is true. It can also call Vertex AI. The Cloud Build service account can write to the Yatalk Artifact Registry repository, read the private build-source bucket, and write Cloud Logging entries. The container image and Cloud Run revision use an immutable image digest.
 
+Owner verification and password-reset email delivery use Resend. Terraform creates only the Secret Manager metadata for `yatalk-resend-api-key`; add its payload through the authorized 1Password environment, configure a sender address verified in Resend, then set `enable_email_delivery = true` and `resend_from_email` in `prd.auto.tfvars` before applying. The Cloud Run service receives only the sender address and a Secret Manager reference. If email delivery is not configured, owners can still create and manage shops, but verification and reset messages will not arrive.
+
+Shop photos use a private regional Cloud Storage bucket, separate from Firestore. The runtime service account can read and write objects only in that bucket. Photos are limited to 2 MB and JPEG, PNG, or WebP; each shop replaces its single cover object to avoid accumulating image files. Public storefronts retrieve images through Yatalk, so the bucket itself remains non-public.
+
 The deployment has three Terraform applies: prerequisites, a private service to discover its URL, then public access with the exact URL configured. The public invoker binding is disabled by default.
 
 Artifact Analysis vulnerability scanning is enabled for this repository. Google currently charges about $0.26 per automatically scanned image; see the [current pricing](https://cloud.google.com/artifact-analysis/pricing) before building additional images.
@@ -74,6 +78,14 @@ Artifact Analysis vulnerability scanning is enabled for this repository. Google 
    printf %s "$PAYPAL_CLIENT_SECRET" | gcloud secrets versions add yatalk-paypal-sandbox-client-secret --project=s-yatalk --data-file=-
    '
    ```
+
+   To configure email delivery, add a Resend API key after Terraform has created its secret metadata:
+
+   ```sh
+   op run --env-file=.env -- sh -eu -c 'printf %s "$RESEND_API_KEY" | gcloud secrets versions add yatalk-resend-api-key --project=s-yatalk --data-file=-'
+   ```
+
+   Set `enable_email_delivery = true` and `resend_from_email = "<verified-sender-address>"` only after that secret version exists.
 
    After the public service is ready, register `https://<cloud-run-service-uri>/api/webhooks/paypal` with the PayPal Sandbox REST app and subscribe only to `PAYMENT.CAPTURE.COMPLETED` and `PAYMENT.CAPTURE.REFUNDED`. Add the returned webhook ID as a version of `yatalk-paypal-sandbox-webhook-id` using stdin. Generate `yatalk-admin-access-code` (at least 16 random characters) and `yatalk-admin-session-secret` (at least 32 random bytes) the same way. Never put these values in `.tfvars` or Terraform state. Set `enable_paypal_webhook` and `enable_organizer_access` true only after the corresponding Secret Manager versions exist. Retrieve the organizer access code directly with `gcloud secrets versions access latest --secret=yatalk-admin-access-code --project=s-yatalk` when signing in.
 

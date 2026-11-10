@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { CurrencyCode } from "../shared/currency.js";
+import { MAX_FREE_OWNER_SHOPS } from "../shared/owner-limits.js";
 import type { FirestoreDb, Shop } from "./database.js";
 import { getShopById } from "./firestore-shops.js";
 import type { FirestoreDocument } from "./firestore-store.js";
 
 type UserDoc = FirestoreDocument & {
   id: string; email: string; displayName: string; ownerSlug: string;
-  defaultCurrency: CurrencyCode; passwordHash: string; createdAt: string;
+  defaultCurrency: CurrencyCode; passwordHash: string; createdAt: string; shopCount?: number; emailVerified?: boolean;
 };
 type MembershipDoc = FirestoreDocument & { id: string; shopId: string; userId: string; role: "owner" | "staff" };
 type ShopDoc = FirestoreDocument & {
@@ -44,8 +45,16 @@ export async function createOwnedShop(db: FirestoreDb, owner: { id: string; curr
   const now = new Date().toISOString();
   const key = `${owner.id}_${slug}`;
   await db.firestoreStore.runTransaction(async (transaction) => {
-    const existing = await transaction.get("shopSlugKeys", key);
+    const [existing, ownerAccount, ownedShops] = await Promise.all([
+      transaction.get("shopSlugKeys", key),
+      transaction.get<UserDoc>("users", owner.id),
+      transaction.query<ShopDoc>("shops", [{ field: "ownerUserId", op: "==", value: owner.id }], undefined, MAX_FREE_OWNER_SHOPS),
+    ]);
+    const shopCount = typeof ownerAccount?.shopCount === "number" ? ownerAccount.shopCount : ownedShops.length;
+    if (shopCount >= MAX_FREE_OWNER_SHOPS) throw new Error("shop_limit_reached");
+    if (!ownerAccount) throw new Error("owner_not_found");
     if (existing) throw new Error("shops.owner_user_id, shops.slug");
+    transaction.update("users", owner.id, { shopCount: shopCount + 1 });
     transaction.create("shopSlugKeys", key, { shopId: id, ownerUserId: owner.id, slug });
     transaction.create("shops", id, {
       id, slug, ownerUserId: owner.id, name, timeZone: "Asia/Tokyo", currency: owner.currency,

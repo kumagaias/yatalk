@@ -11,6 +11,10 @@ test("runtime configuration fixes the demo to PayPal sandbox and JPY", () => {
   assert.equal(config.googleCloudProject, null);
   assert.equal(config.googleCloudLocation, "global");
   assert.equal(config.geminiModel, "gemini-3.5-flash-lite");
+  assert.equal(config.resendApiKey, null);
+  assert.equal(config.resendFromEmail, null);
+  assert.equal(loadConfig({ ...base, RESEND_API_KEY: "resend-test", RESEND_FROM_EMAIL: "owner@example.test" }).resendFromEmail, "owner@example.test");
+  assert.throws(() => loadConfig({ ...base, RESEND_FROM_EMAIL: "not-an-email" }), /RESEND_FROM_EMAIL is invalid/);
   assert.throws(() => loadConfig({ ...base, GOOGLE_CLOUD_PROJECT: "bad/project" }), /GOOGLE_CLOUD_PROJECT is invalid/);
   assert.equal(loadConfig({ ...base, GOOGLE_CLOUD_PROJECT: "s-yatalk", GOOGLE_CLOUD_LOCATION: "global" }).googleCloudProject, "s-yatalk");
   assert.throws(() => loadConfig({ ...base, PAYPAL_MODE: "live" }), /PAYPAL_MODE must be sandbox/);

@@ -9,6 +9,8 @@ const config: AppConfig = {
   paypalMode: "sandbox", paypalClientId: "sandbox-client", paypalClientSecret: "sandbox-secret", paypalWebhookId: "webhook-id",
   googleCloudProject: null, googleCloudLocation: "global", geminiModel: "test-model",
   adminAccessCode: null, adminSessionSecret: null,
+  resendApiKey: null, resendFromEmail: null,
+  shopImageBucket: null,
 };
 
 test("PayPal webhook verification posts the configured webhook ID, headers, and event", async () => {

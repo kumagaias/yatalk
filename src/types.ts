@@ -72,6 +72,7 @@ export type OrganizerProduct = Product & {
 };
 
 export type OrganizerSummary = {
+  shopImageEnabled?: boolean;
   shop?: { slug: string; ownerSlug?: string | null; name: string; currency?: string; status: "active" | "inactive" };
   metrics: {
     grossSalesMinor: number;

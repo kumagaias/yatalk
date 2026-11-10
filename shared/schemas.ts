@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SUPPORTED_CURRENCIES } from "./currency.js";
+import { MIN_FREE_OWNER_SLUG_LENGTH } from "./owner-limits.js";
 
 const cartOperationFields = {
   action: z.enum(["add", "set", "remove"]),
@@ -64,6 +65,11 @@ export const productPatchSchema = z.object({
   active: z.boolean().optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
+export const receiveStockSchema = z.object({
+  quantity: z.number().int().min(1).max(999),
+  receiptId: z.string().uuid(),
+}).strict();
+
 export const createProductSchema = z.object({
   name: z.string().trim().min(1).max(80),
   description: z.string().trim().max(240),
@@ -119,11 +125,12 @@ const reservedOwnerSlugs = new Set(["api", "dashboard", "shops", "organizer", "o
 export const ownerSlugSchema = z.string().min(3).max(40)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers, and single hyphens")
   .refine((slug) => !reservedOwnerSlugs.has(slug), "This owner address is reserved");
+export const ownerRegistrationSlugSchema = ownerSlugSchema.min(MIN_FREE_OWNER_SLUG_LENGTH, "Free owner addresses must contain at least 5 characters");
 export const currencySchema = z.enum(SUPPORTED_CURRENCIES);
 
 export const ownerRegistrationRequestSchema = z.object({
   displayName: z.string().trim().min(1).max(80),
-  ownerSlug: ownerSlugSchema,
+  ownerSlug: ownerRegistrationSlugSchema,
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(12).max(128),
   defaultCurrency: currencySchema,
@@ -141,6 +148,19 @@ export const addShopRequestSchema = z.object(shopFields).strict();
 export const ownerLoginRequestSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   password: z.string().min(1).max(128),
+}).strict();
+
+export const passwordResetRequestSchema = z.object({
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+}).strict();
+
+export const passwordResetCompleteSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  password: z.string().min(12).max(128),
+}).strict();
+
+export const emailVerificationTokenSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 }).strict();
 
 export const paypalOrderCreateRequestSchema = z.object({

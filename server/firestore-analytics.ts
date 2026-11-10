@@ -3,7 +3,7 @@ import { DEFAULT_SHOP_ID } from "./database.js";
 import type { FirestoreDocument } from "./firestore-store.js";
 import { listProducts } from "./inventory.js";
 import type { OrderRow } from "./order-state.js";
-import { eventDayBounds } from "./analytics.js";
+import { eventDayBounds, eventDayWindowBounds, type OrganizerFactsOptions } from "./analytics.js";
 
 type ShopDoc = FirestoreDocument & { currency: string };
 type LineDoc = FirestoreDocument & { product_id: string; display_name: string; quantity: number };
@@ -18,41 +18,51 @@ function wallClockParts(date: Date, timeZone: string): { year: number; month: nu
   return { year: values.year!, month: values.month!, day: values.day! };
 }
 
-export async function organizerFacts(db: FirestoreDb, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID) {
+export async function organizerFacts(db: FirestoreDb, timeZone: string, now = new Date(), shopId = DEFAULT_SHOP_ID, options: OrganizerFactsOptions = {}) {
   const bounds = eventDayBounds(now, timeZone);
+  const salesWindow = options.includeSalesTrend ? eventDayWindowBounds(now, timeZone, 7) : null;
   const localDay = wallClockParts(now, timeZone);
   const [shop, orders, products] = await Promise.all([
     db.firestoreStore.get<ShopDoc>("shops", shopId),
     db.firestoreStore.query<OrderDoc>("orders", [
       { field: "shopId", op: "==", value: shopId },
-      { field: "capturedAt", op: ">=", value: bounds.start },
-      { field: "capturedAt", op: "<", value: bounds.end },
+      { field: "capturedAt", op: ">=", value: salesWindow?.start ?? bounds.start },
+      { field: "capturedAt", op: "<", value: salesWindow?.end ?? bounds.end },
     ]),
     listProducts(db, shopId),
   ]);
   if (!shop) throw new Error("Shop was not found");
-  const captured = orders.filter((order) => order.capturedAt && order.capturedAt >= bounds.start && order.capturedAt < bounds.end &&
+  const captured = orders.filter((order) => order.capturedAt && order.capturedAt >= (salesWindow?.start ?? bounds.start) && order.capturedAt < (salesWindow?.end ?? bounds.end) &&
     ["paid", "collected", "refund_unknown", "refunded"].includes(order.state));
-  const grossCapturedMinor = captured.reduce((sum, order) => sum + order.totalMinor, 0);
-  const netCapturedMinor = captured.filter((order) => order.state !== "refunded").reduce((sum, order) => sum + order.totalMinor, 0);
+  const capturedToday = captured.filter((order) => order.capturedAt! >= bounds.start && order.capturedAt! < bounds.end);
+  const grossCapturedMinor = capturedToday.reduce((sum, order) => sum + order.totalMinor, 0);
+  const netCapturedMinor = capturedToday.filter((order) => order.state !== "refunded").reduce((sum, order) => sum + order.totalMinor, 0);
   const units = new Map<string, { id: string; name: string; units_sold: number }>();
-  for (const order of captured.filter((item) => ["paid", "collected", "refund_unknown"].includes(item.state))) {
+  const weeklyUnits = new Map<string, { id: string; name: string; units_sold: number }>();
+  const salesOrders = captured.filter((item) => ["paid", "collected", "refund_unknown"].includes(item.state));
+  for (const order of salesOrders) {
     for (const line of order.items ?? []) {
-      const sold = units.get(line.product_id) ?? { id: line.product_id, name: line.display_name, units_sold: 0 };
-      sold.units_sold += line.quantity;
-      units.set(line.product_id, sold);
+      const weekSold = weeklyUnits.get(line.product_id) ?? { id: line.product_id, name: line.display_name, units_sold: 0 };
+      weekSold.units_sold += line.quantity;
+      weeklyUnits.set(line.product_id, weekSold);
+      if (order.capturedAt! >= bounds.start && order.capturedAt! < bounds.end) {
+        const daySold = units.get(line.product_id) ?? { id: line.product_id, name: line.display_name, units_sold: 0 };
+        daySold.units_sold += line.quantity;
+        units.set(line.product_id, daySold);
+      }
     }
   }
   const lowStockItems = products.filter((product) => product.available <= 5);
   return {
     date: `${localDay.year}-${String(localDay.month).padStart(2, "0")}-${String(localDay.day).padStart(2, "0")}`,
     timeZone, currency: shop.currency, grossCapturedMinor, netCapturedMinor,
-    netOrderCount: captured.filter((order) => ["paid", "collected", "refund_unknown"].includes(order.state)).length,
-    refundedOrderCount: captured.filter((order) => order.state === "refunded").length,
+    netOrderCount: capturedToday.filter((order) => ["paid", "collected", "refund_unknown"].includes(order.state)).length,
+    refundedOrderCount: capturedToday.filter((order) => order.state === "refunded").length,
     lowStockCount: lowStockItems.length,
     lowStockItems: lowStockItems.map(({ id, name, stockOnHand, reserved, available, priceMinor }) => ({ id, name, stockOnHand, reserved, available, priceMinor })),
     products: products.map(({ id, name, stockOnHand, reserved, available, priceMinor }) => ({ id, name, stockOnHand, reserved, available, priceMinor })),
     unitsSold: [...units.values()].sort((left, right) => right.units_sold - left.units_sold || left.name.localeCompare(right.name)),
+    unitsSoldLast7Days: salesWindow ? [...weeklyUnits.values()].sort((left, right) => right.units_sold - left.units_sold || left.name.localeCompare(right.name)) : [],
   };
 }
 

@@ -28,8 +28,10 @@ test("Gemini cart interpretation requests validated structured output", async ()
 });
 
 test("Gemini organizer answer is parsed through a strict schema", async () => {
-  const provider = new GeminiVertex(config, async () => JSON.stringify({ answer: "Three items are nearly sold out." }));
-  assert.equal(await provider.explainFacts("What is low?", { lowStock: ["Tea"] }), "Three items are nearly sold out.");
+  const provider = new GeminiVertex(config, async () => JSON.stringify({ answer: "Check the tea first.", restockPriorityIds: ["tea"] }));
+  assert.deepEqual(await provider.explainFacts("What should I restock?", { lowStockItems: [{ id: "tea" }] }), {
+    answer: "Check the tea first.", restockPriorityIds: ["tea"],
+  });
 });
 
 test("Gemini transcribes bounded WebM audio without applying it to the cart", async () => {

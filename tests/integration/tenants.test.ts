@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { FakePayPal, json, origin, postHeaders, withServer } from "./support.js";
+import { MAX_FREE_OWNER_SHOPS } from "../../shared/owner-limits.js";
+import { FakeEmailSender, FakePayPal, json, origin, postHeaders, withServer } from "./support.js";
 
 type ShopCreated = { shop: { slug: string; name: string }; dashboardUrl: string };
 
@@ -19,6 +20,12 @@ async function createOwner(url: string, slug: string, email: string, password = 
   });
   assert.equal(created.response.status, 201);
   return { cookie, ownerSlug, shop: (created.body as ShopCreated).shop };
+}
+
+function emailToken(message: string): string {
+  const link = message.match(/https?:\/\/\S+/)?.[0];
+  if (!link) throw new Error("Test email did not include a link");
+  return new URL(link).hash.slice("#token=".length);
 }
 
 async function visitor(url: string, slug: string) {
@@ -141,11 +148,76 @@ test("menu assistant requires shop ownership and returns editable drafts without
   });
 });
 
+test("AI restock plan uses recent sales and only updates inventory after the owner confirms receipt", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const owner = await createOwner(url, `shop-stock-ai-${suffix}`, `stock-ai-${suffix}@example.test`);
+    const dashboard = `/api/v1/dashboard/${owner.ownerSlug}/${owner.shop.slug}`;
+    const created = await json(`${url}${dashboard}/products/bulk`, {
+      method: "POST", headers: postHeaders(owner.cookie),
+      body: JSON.stringify({ products: [{ name: "Mikan tea", description: "", priceMinor: 450, stockOnHand: 3, dietaryNote: "" }] }),
+    });
+    assert.equal(created.response.status, 201);
+
+    const storefront = `/api/v1/owners/${owner.ownerSlug}/shops/${owner.shop.slug}`;
+    const cart = await json(`${url}${storefront}/cart`);
+    const visitorCookie = cart.response.headers.get("set-cookie")!.split(";", 1)[0]!;
+    const item = created.body.products[0];
+    const added = await json(`${url}${storefront}/cart/items`, {
+      method: "POST", headers: postHeaders(visitorCookie),
+      body: JSON.stringify({ action: "add", productId: item.id, quantity: 1,
+        cartVersion: cart.body.cartVersion, catalogRevision: cart.body.catalogRevision }),
+    });
+    const order = await json(`${url}${storefront}/orders`, {
+      method: "POST", headers: postHeaders(visitorCookie),
+      body: JSON.stringify({ cartVersion: added.body.cartVersion, catalogRevision: added.body.catalogRevision,
+        clientRequestKey: "00000000-0000-4000-8000-000000000091" }),
+    });
+    const captured = await json(`${url}${storefront}/orders/${order.body.orderId}/capture`, {
+      method: "POST", headers: postHeaders(visitorCookie), body: "{}",
+    });
+    assert.equal(captured.response.status, 200);
+
+    const answer = await json(`${url}${dashboard}/ask`, {
+      method: "POST", headers: postHeaders(owner.cookie), body: JSON.stringify({ question: "What should I restock first?" }),
+    });
+    assert.equal(answer.response.status, 200);
+    assert.equal(answer.body.sourceFacts.lowStockItems[0].name, "Mikan tea");
+    assert.equal(answer.body.sourceFacts.lowStockItems[0].available, 2);
+    assert.equal(answer.body.sourceFacts.unitsSold[0].units_sold, 1);
+    assert.equal(answer.body.sourceFacts.unitsSoldLast7Days[0].units_sold, 1);
+    assert.deepEqual(answer.body.inventoryPriority.map((priority: { id: string; suggestedQuantity: number; targetStock: number }) => ({
+      id: priority.id, suggestedQuantity: priority.suggestedQuantity, targetStock: priority.targetStock,
+    })), [
+      { id: item.id, suggestedQuantity: 3, targetStock: 5 },
+    ]);
+    const summary = await json(`${url}${dashboard}/summary`, { headers: { cookie: owner.cookie } });
+    assert.equal(summary.body.products[0].available, 2);
+
+    const receiptId = "00000000-0000-4000-8000-000000000091";
+    const receivePayload = { quantity: answer.body.inventoryPriority[0].suggestedQuantity, receiptId };
+    const received = await json(`${url}${dashboard}/products/${item.id}/receive`, {
+      method: "POST", headers: postHeaders(owner.cookie), body: JSON.stringify(receivePayload),
+    });
+    assert.equal(received.response.status, 200);
+    assert.equal(received.body.product.stockOnHand, 5);
+    assert.equal(received.body.product.available, 5);
+    assert.equal(received.body.applied, true);
+    const retried = await json(`${url}${dashboard}/products/${item.id}/receive`, {
+      method: "POST", headers: postHeaders(owner.cookie), body: JSON.stringify(receivePayload),
+    });
+    assert.equal(retried.body.applied, false);
+    assert.equal(retried.body.product.stockOnHand, 5);
+    const receiptAudit = await json(`${url}${dashboard}/summary`, { headers: { cookie: owner.cookie } });
+    assert.equal(receiptAudit.body.products[0].stockOnHand, 5);
+  });
+});
+
 test("shop menu photo extraction requires the owner, checks image content, and saves only reviewed menu items", async () => {
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);
     const owner = await createOwner(url, `shop-menu-${suffix}`, `menu-${suffix}@example.test`);
-    const image = readFileSync(new URL("../fixtures/menu-ocr-test.png", import.meta.url));
+    const image = readFileSync(new URL("../../public/menu-ocr-sample.png", import.meta.url));
     const scanUrl = `${url}/api/v1/dashboard/shops/${owner.shop.slug}/menu/scan`;
 
     const unauthenticated = await fetch(scanUrl, { method: "POST", headers: { origin, "content-type": "image/png" }, body: image });
@@ -160,6 +232,10 @@ test("shop menu photo extraction requires the owner, checks image content, and s
     assert.deepEqual(scanned.body.items.map((item: { name: string; priceMinor: number }) => [item.name, item.priceMinor]), [
       ["Grilled Onigiri", 400], ["Iced Tea", 300], ["Mikan Jelly", 500],
     ]);
+    const nestedScanUrl = `${url}/api/v1/dashboard/${owner.ownerSlug}/${owner.shop.slug}/menu/scan`;
+    const nestedScanned = await json(nestedScanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/png" }, body: image });
+    assert.equal(nestedScanned.response.status, 200);
+    assert.equal(nestedScanned.body.items.length, 3);
     const emptyMenu = await json(`${url}/api/v1/shops/${owner.shop.slug}/menu`);
     assert.deepEqual(emptyMenu.body.products, []);
 
@@ -217,6 +293,43 @@ test("shop slug availability reports reserved and existing addresses", async () 
   });
 });
 
+test("free owner accounts can create at most three shops", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const owner = await createOwner(url, `limit-first-${suffix}`, `limit-${suffix}@example.test`);
+    for (let index = 2; index <= MAX_FREE_OWNER_SHOPS; index += 1) {
+      const created = await json(`${url}/api/v1/dashboard/shops`, {
+        method: "POST", headers: postHeaders(owner.cookie),
+        body: JSON.stringify({ name: `Shop ${index}`, slug: `limit-${index}-${suffix}` }),
+      });
+      assert.equal(created.response.status, 201);
+    }
+    const rejected = await json(`${url}/api/v1/dashboard/shops`, {
+      method: "POST", headers: postHeaders(owner.cookie),
+      body: JSON.stringify({ name: "Extra shop", slug: `limit-extra-${suffix}` }),
+    });
+    assert.equal(rejected.response.status, 409);
+    assert.equal(rejected.body.error.code, "shop_limit_reached");
+    const list = await json(`${url}/api/v1/dashboard/shops`, { headers: { cookie: owner.cookie } });
+    assert.equal(list.body.shops.length, MAX_FREE_OWNER_SHOPS);
+  });
+});
+
+test("owner registration blocks repeated attempts from one IP before ten attempts", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const register = (index: number) => json(`${url}/api/v1/owners`, {
+      method: "POST", headers: { origin, "content-type": "application/json" },
+      body: JSON.stringify({ displayName: `Rate test ${index}`, ownerSlug: `rate-${suffix}-${index}`,
+        email: `rate-${suffix}-${index}@example.test`, password: "a-test-password-123", defaultCurrency: "JPY" }),
+    });
+    for (let index = 1; index <= 3; index += 1) assert.equal((await register(index)).response.status, 201);
+    const limited = await register(4);
+    assert.equal(limited.response.status, 429);
+    assert.equal(limited.body.error.code, "rate_limited");
+  });
+});
+
 test("owner sign-in, session revocation, reserved slugs, and webhook alias behave as designed", async () => {
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);
@@ -258,4 +371,83 @@ test("owner sign-in, session revocation, reserved slugs, and webhook alias behav
     });
     assert.equal(webhook.status, 204);
   });
+});
+
+test("owner registration verifies email through a single-use link", async () => {
+  const mailer = new FakeEmailSender();
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const email = `verify-${suffix}@example.test`;
+    const registration = await json(`${url}/api/v1/owners`, {
+      method: "POST", headers: { origin, "content-type": "application/json" },
+      body: JSON.stringify({ displayName: "Verify Owner", ownerSlug: `verify-${suffix}`, email, password: "a-test-password-123", defaultCurrency: "JPY" }),
+    });
+    assert.equal(registration.response.status, 201);
+    assert.equal(registration.body.emailVerified, false);
+    assert.equal(registration.body.verificationEmailSent, true);
+    assert.equal(mailer.messages.length, 1);
+    assert.equal(mailer.messages[0]?.to, email);
+    assert.ok(new URL(mailer.messages[0]!.text.match(/https?:\/\/\S+/)![0]!).hash.startsWith("#token="));
+    const token = emailToken(mailer.messages[0]!.text);
+    const verified = await fetch(`${url}/api/v1/auth/verification/confirm`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ token }),
+    });
+    assert.equal(verified.status, 204);
+    const cookie = registration.response.headers.get("set-cookie")!.split(";", 1)[0]!;
+    const session = await json(`${url}/api/v1/auth/session`, { headers: { cookie } });
+    assert.equal(session.body.emailVerified, true);
+    const reused = await json(`${url}/api/v1/auth/verification/confirm`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ token }),
+    });
+    assert.equal(reused.response.status, 400);
+  }, undefined, mailer);
+});
+
+test("password reset response is generic, one-time, and revokes prior owner sessions", async () => {
+  const mailer = new FakeEmailSender();
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const email = `reset-${suffix}@example.test`;
+    const password = "a-test-password-123";
+    const owner = await createOwner(url, `reset-shop-${suffix}`, email, password);
+    const extraSession = await json(`${url}/api/v1/auth/session`, { headers: { cookie: owner.cookie } });
+    assert.equal(extraSession.body.authenticated, true);
+    const login = await fetch(`${url}/api/v1/auth/session`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ email, password }),
+    });
+    assert.equal(login.status, 204);
+    const secondCookie = login.headers.get("set-cookie")!.split(";", 1)[0]!;
+
+    const requested = await json(`${url}/api/v1/auth/password-reset/request`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ email }),
+    });
+    const unknown = await json(`${url}/api/v1/auth/password-reset/request`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ email: `missing-${suffix}@example.test` }),
+    });
+    assert.equal(requested.response.status, 202);
+    assert.deepEqual(requested.body, unknown.body);
+    assert.equal(mailer.messages.filter((message) => message.subject.includes("Reset")).length, 1);
+    const message = mailer.messages.find((item) => item.subject.includes("Reset"))!;
+    const token = emailToken(message.text);
+    const completed = await fetch(`${url}/api/v1/auth/password-reset/complete`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ token, password: "a-new-test-password-456" }),
+    });
+    assert.equal(completed.status, 204);
+    for (const cookie of [owner.cookie, secondCookie]) {
+      const session = await json(`${url}/api/v1/auth/session`, { headers: { cookie } });
+      assert.equal(session.body.authenticated, false);
+    }
+    const oldLogin = await fetch(`${url}/api/v1/auth/session`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ email, password }),
+    });
+    const newLogin = await fetch(`${url}/api/v1/auth/session`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ email, password: "a-new-test-password-456" }),
+    });
+    assert.equal(oldLogin.status, 401);
+    assert.equal(newLogin.status, 204);
+    const reused = await json(`${url}/api/v1/auth/password-reset/complete`, {
+      method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ token, password: "another-new-password-789" }),
+    });
+    assert.equal(reused.response.status, 400);
+  }, undefined, mailer);
 });

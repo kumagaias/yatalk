@@ -90,7 +90,7 @@ export function InventoryCard({ products, saving, feedback, onSave }: {
                     <button type="submit" aria-label={`Save price and stock for ${product.name}`} disabled={saving === product.id}>{saving === product.id ? "…" : <Check size={16} aria-hidden="true" />}</button>
                   </div>
                 </form>
-                {feedback[product.id] && <span className={`inventory-feedback ${feedback[product.id] === "Saved" ? "saved" : ""}`} role="status">{feedback[product.id]}</span>}
+                {feedback[product.id] && <span className={`inventory-feedback ${feedback[product.id].startsWith("Saved") ? "saved" : ""}`} role="status">{feedback[product.id]}</span>}
               </td>
               <td className="stock-count">{product.reserved}</td><td className="stock-count">{product.available}</td>
             </tr>)}</tbody>

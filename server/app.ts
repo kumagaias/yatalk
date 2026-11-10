@@ -16,6 +16,9 @@ import { webhookRoutes } from "./routes/webhooks.js";
 import { voiceRoutes } from "./routes/voice.js";
 import { GeminiVertex, type AiProvider } from "./services/ai.js";
 import { PayPalClient, type PayPalProvider } from "./services/paypal.js";
+import { ResendEmailSender, type EmailSender } from "./email.js";
+import { GoogleCloudShopImageStorage, type ShopImageStorage } from "./shop-image-storage.js";
+import { shopImageRoutes } from "./routes/shop-images.js";
 import { trustedProxyHops } from "./network.js";
 import { requireOwner, requireShopMember } from "./owner-auth.js";
 import { requireOwnerShopSlug, requireShopSlug, useDefaultShop } from "./shop-context.js";
@@ -25,7 +28,23 @@ export interface CreateAppOptions {
   db?: Db;
   paypal?: PayPalProvider;
   ai?: AiProvider;
+  emailSender?: EmailSender;
+  shopImageStorage?: ShopImageStorage | null;
   serveStatic?: boolean;
+}
+
+const largeBodyRoutes = [
+  /^\/api\/voice\/transcribe$/,
+  /^\/api\/organizer\/menu\/scan$/,
+  /^\/api\/v1\/shops\/[^/]+\/voice\/transcribe$/,
+  /^\/api\/v1\/owners\/[^/]+\/shops\/[^/]+\/voice\/transcribe$/,
+  /^\/api\/v1\/dashboard\/shops\/[^/]+\/menu\/scan$/,
+  /^\/api\/v1\/dashboard\/[^/]+\/[^/]+\/menu\/scan$/,
+  /^\/api\/v1\/dashboard\/[^/]+\/[^/]+\/image$/,
+];
+
+function isLargeBodyRoute(pathname: string): boolean {
+  return largeBodyRoutes.some((pattern) => pattern.test(pathname));
 }
 
 export function createApp(options: CreateAppOptions): express.Express {
@@ -33,6 +52,9 @@ export function createApp(options: CreateAppOptions): express.Express {
   const db = options.db ?? createDatabase(config.databasePath);
   const paypal = options.paypal ?? new PayPalClient(config);
   const ai = options.ai ?? new GeminiVertex(config);
+  const shopImageStorage = options.shopImageStorage === undefined
+    ? config.shopImageBucket ? new GoogleCloudShopImageStorage(config.shopImageBucket) : null
+    : options.shopImageStorage;
   const app = express();
   app.set("trust proxy", trustedProxyHops(config.nodeEnv));
   app.disable("x-powered-by");
@@ -58,13 +80,15 @@ export function createApp(options: CreateAppOptions): express.Express {
   app.use("/api/v1/webhooks", webhookRoutes(db, config, paypal));
   app.use(express.json({ limit: "32kb", type: "application/json", strict: true }));
   app.use((request, response, next) => {
-    if (request.path === "/api/voice/transcribe" || /^\/api\/v1\/shops\/[^/]+\/voice\/transcribe$/.test(request.path) ||
-        request.path === "/api/organizer/menu/scan" || /^\/api\/v1\/dashboard\/shops\/[^/]+\/menu\/scan$/.test(request.path)) { next(); return; }
+    if (isLargeBodyRoute(request.path)) { next(); return; }
     express.raw({ type: () => true, limit: "32kb" })(request, response, next);
   });
   app.get("/api/health", (_request, response) => response.json({ ok: true }));
   const v1 = express.Router();
-  v1.use(tenantRoutes(db, config));
+  v1.use(tenantRoutes(db, config, options.emailSender ?? new ResendEmailSender(config)));
+  v1.use("/owners/:ownerSlug/shops/:shopSlug/image", requireOwnerShopSlug(db), shopImageRoutes(config, shopImageStorage, false));
+  v1.use("/dashboard/:ownerSlug/:shopSlug/image", requireOwnerShopSlug(db, true), requireOwner(db), requireShopMember(db), shopImageRoutes(config, shopImageStorage, true));
+  v1.use("/shops/:shopSlug/image", requireShopSlug(db), shopImageRoutes(config, shopImageStorage, false));
   // Keep the legacy /dashboard/shops/:shopSlug alias ahead of the two-segment
   // owner route so "shops" is not interpreted as an owner slug.
   v1.use("/dashboard/shops/:shopSlug", requireShopSlug(db, true), requireOwner(db), requireShopMember(db),

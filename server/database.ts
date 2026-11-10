@@ -52,8 +52,17 @@ CREATE TABLE IF NOT EXISTS users (
   owner_slug TEXT NOT NULL UNIQUE CHECK(length(owner_slug) BETWEEN 3 AND 40),
   default_currency TEXT NOT NULL DEFAULT 'JPY' CHECK(default_currency IN ('AUD', 'CAD', 'EUR', 'GBP', 'JPY', 'SGD', 'USD')),
   password_hash TEXT NOT NULL,
+  email_verified INTEGER NOT NULL DEFAULT 1 CHECK(email_verified IN (0, 1)),
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS owner_tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose TEXT NOT NULL CHECK(purpose IN ('verify_email', 'password_reset')),
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_owner_tokens_user_purpose ON owner_tokens(user_id, purpose);
 CREATE TABLE IF NOT EXISTS owner_sessions (
   token_hash TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -177,6 +186,15 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
   metadata TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS inventory_receipts (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  product_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL CHECK(quantity BETWEEN 1 AND 999),
+  stock_on_hand INTEGER NOT NULL CHECK(stock_on_hand BETWEEN 0 AND 999),
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(shop_id, product_id) REFERENCES products(shop_id, id)
+);
 CREATE INDEX IF NOT EXISTS idx_orders_session_created ON orders(session_hash, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_state_expiry ON orders(state, expires_at);
 CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id);
@@ -211,6 +229,7 @@ function ensureLegacyTenantColumns(db: Db): void {
   ensureColumn(db, "users", "display_name", "TEXT NOT NULL DEFAULT 'Shop owner'");
   ensureColumn(db, "users", "owner_slug", "TEXT");
   ensureColumn(db, "users", "default_currency", "TEXT NOT NULL DEFAULT 'JPY'");
+  ensureColumn(db, "users", "email_verified", "INTEGER NOT NULL DEFAULT 1 CHECK(email_verified IN (0, 1))");
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_id_id ON products(shop_id, id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_visitor_sessions_shop_hash ON visitor_sessions(shop_id, session_hash);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_id_id ON orders(shop_id, id);
@@ -328,6 +347,7 @@ function createCurrencyTriggers(db: Db): void {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_shops_owner_slug ON shops(owner_user_id, slug);
     CREATE INDEX IF NOT EXISTS idx_shops_slug ON shops(slug);
+    CREATE INDEX IF NOT EXISTS idx_orders_shop_captured ON orders(shop_id, captured_at);
     CREATE TRIGGER IF NOT EXISTS products_currency_insert BEFORE INSERT ON products
       WHEN NEW.currency <> (SELECT currency FROM shops WHERE id = NEW.shop_id)
       BEGIN SELECT RAISE(ABORT, 'product currency must match shop currency'); END;

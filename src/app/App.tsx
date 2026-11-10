@@ -2,7 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { MarketPage } from "./MarketPage";
 import { OrganizerLogin } from "./OrganizerLogin";
 import { DashboardPage } from "./DashboardPage";
-import { OwnerLoginPage, OwnerRegistrationPage, OwnerShopsPage, PlatformHome, ShopOrderPage, ShopSetupPage } from "./TenantPages";
+import { OwnerLoginPage, OwnerRegistrationPage, OwnerShopsPage, PasswordResetPage, PlatformHome, ShopOrderPage, ShopSetupPage, VerifyEmailPage } from "./TenantPages";
 
 export function App() {
   return (
@@ -13,6 +13,8 @@ export function App() {
         <Route path="/shops/:shopSlug/orders/:orderId" element={<ShopOrderPage />} />
         <Route path="/shops/:shopSlug" element={<MarketPage />} />
         <Route path="/owners/new" element={<OwnerRegistrationPage />} />
+        <Route path="/password-reset" element={<PasswordResetPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/:ownerSlug/:shopSlug/orders/:orderId" element={<ShopOrderPage />} />
         <Route path="/:ownerSlug/:shopSlug" element={<MarketPage />} />
         <Route path="/dashboard/login" element={<OwnerLoginPage />} />

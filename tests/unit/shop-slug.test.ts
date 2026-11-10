@@ -20,6 +20,9 @@ test("slug validation follows the public shop address rules", () => {
 test("owner addresses normalize names and keep reserved routes unavailable", () => {
   assert.equal(ownerSlugFromName("Little Harbor"), "little-harbor");
   assert.equal(ownerSlugFromName("東京の店"), "my-owner");
+  assert.equal(ownerSlugFromName("Jo"), "owner-jo");
   assert.equal(isValidOwnerSlug("little-harbor"), true);
+  assert.equal(isValidOwnerSlug("four"), false);
+  assert.equal(isValidOwnerSlug("first"), true);
   assert.equal(isValidOwnerSlug("dashboard"), false);
 });

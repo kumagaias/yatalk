@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accessCodeRequestSchema, cartItemRequestSchema, cartOperationSchema } from "../../shared/schemas.js";
+import { accessCodeRequestSchema, cartItemRequestSchema, cartOperationSchema, ownerRegistrationRequestSchema } from "../../shared/schemas.js";
 
 test("cart operation actions enforce their quantity rules in model and browser requests", () => {
   for (const schema of [cartOperationSchema, cartItemRequestSchema]) {
@@ -17,4 +17,10 @@ test("organizer access codes reject short passphrases", () => {
   assert.equal(accessCodeRequestSchema.safeParse({ accessCode: "too-short" }).success, false);
   assert.equal(accessCodeRequestSchema.safeParse({ accessCode: "a-random-passphrase" }).success, true);
   assert.equal(accessCodeRequestSchema.safeParse({ accessCode: "x".repeat(129) }).success, false);
+});
+
+test("free owner registration requires a five-character address", () => {
+  const input = { displayName: "Shop owner", email: "owner@example.test", password: "long-enough-password", defaultCurrency: "JPY" };
+  assert.equal(ownerRegistrationRequestSchema.safeParse({ ...input, ownerSlug: "four" }).success, false);
+  assert.equal(ownerRegistrationRequestSchema.safeParse({ ...input, ownerSlug: "first" }).success, true);
 });

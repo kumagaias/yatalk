@@ -10,6 +10,7 @@ locals {
     "logging.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
+    "storage.googleapis.com",
   ])
   preview_service_name = "yatalk-dev-preview"
   preview_repo_name    = "yatalk-dev"
@@ -96,6 +97,25 @@ resource "google_service_account" "runtime" {
   depends_on = [google_project_service.preview_apis]
 }
 
+resource "google_storage_bucket" "shop_images" {
+  project                     = var.project_id
+  name                        = "yatalk-dev-shop-images-s-yatalk"
+  location                    = "ASIA-NORTHEAST1"
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+
+  lifecycle { prevent_destroy = true }
+  depends_on = [google_project_service.preview_apis]
+}
+
+resource "google_storage_bucket_iam_member" "runtime_shop_images" {
+  bucket = google_storage_bucket.shop_images.name
+  role   = "roles/storage.objectUser"
+  member = "serviceAccount:${google_service_account.runtime.email}"
+}
+
 resource "google_project_iam_member" "runtime_vertex_ai" {
   project = var.project_id
   role    = "roles/aiplatform.user"
@@ -169,6 +189,19 @@ resource "google_secret_manager_secret" "admin_session_secret" {
   depends_on = [google_project_service.preview_apis]
 }
 
+resource "google_secret_manager_secret" "resend_api_key" {
+  project   = var.project_id
+  secret_id = "yatalk-resend-api-key"
+  labels    = { app = "yatalk", environment = "dev" }
+
+  replication {
+    auto {}
+  }
+
+  lifecycle { prevent_destroy = true }
+  depends_on = [google_project_service.preview_apis]
+}
+
 resource "google_secret_manager_secret_iam_member" "runtime_paypal_client_id" {
   project   = var.project_id
   secret_id = google_secret_manager_secret.paypal_client_id.secret_id
@@ -203,6 +236,14 @@ resource "google_secret_manager_secret_iam_member" "runtime_admin_session_secret
   count     = var.enable_organizer_access ? 1 : 0
   project   = var.project_id
   secret_id = google_secret_manager_secret.admin_session_secret.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "runtime_resend_api_key" {
+  count     = var.enable_email_delivery ? 1 : 0
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.resend_api_key.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.runtime.email}"
 }
@@ -249,6 +290,10 @@ resource "google_cloud_run_v2_service" "preview" {
       env {
         name  = "DATABASE_BACKEND"
         value = "firestore"
+      }
+      env {
+        name  = "SHOP_IMAGE_BUCKET"
+        value = google_storage_bucket.shop_images.name
       }
       env {
         name  = "GOOGLE_CLOUD_LOCATION"
@@ -321,6 +366,27 @@ resource "google_cloud_run_v2_service" "preview" {
       }
 
       dynamic "env" {
+        for_each = var.enable_email_delivery ? [true] : []
+        content {
+          name  = "RESEND_FROM_EMAIL"
+          value = var.resend_from_email
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.enable_email_delivery ? [true] : []
+        content {
+          name = "RESEND_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.resend_api_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      dynamic "env" {
         for_each = var.enable_organizer_access ? [true] : []
         content {
           name = "ADMIN_SESSION_SECRET"
@@ -350,16 +416,19 @@ resource "google_cloud_run_v2_service" "preview" {
     google_project_service.preview_apis,
     google_project_service.vertex_ai,
     google_project_iam_member.runtime_firestore_user,
+    google_storage_bucket_iam_member.runtime_shop_images,
     google_firestore_index.orders_expiry,
     google_firestore_index.orders_daily_captured,
     google_firestore_index.orders_recent,
     google_firestore_index.products_shop_active,
+    google_firestore_index.owner_tokens_user_purpose,
     google_project_iam_member.runtime_vertex_ai,
     google_secret_manager_secret_iam_member.runtime_paypal_client_id,
     google_secret_manager_secret_iam_member.runtime_paypal_client_secret,
     google_secret_manager_secret_iam_member.runtime_paypal_webhook_id,
     google_secret_manager_secret_iam_member.runtime_admin_access_code,
     google_secret_manager_secret_iam_member.runtime_admin_session_secret,
+    google_secret_manager_secret_iam_member.runtime_resend_api_key,
   ]
 }
 

@@ -22,6 +22,7 @@ function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?
   const [cart, setCart] = useState<Cart | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [eventName, setEventName] = useState("Little Harbor Market");
+  const [shopImageMissing, setShopImageMissing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [menuError, setMenuError] = useState("");
   const [configError, setConfigError] = useState("");
@@ -149,6 +150,9 @@ function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?
     void refreshCartAndMenu();
   };
   const currentName = config?.eventName || eventName;
+  const shopImageUrl = ownerSlug && shopSlug
+    ? `/api/v1/owners/${encodeURIComponent(ownerSlug)}/shops/${encodeURIComponent(shopSlug)}/image`
+    : shopSlug ? `/api/v1/shops/${encodeURIComponent(shopSlug)}/image` : "";
   const dashboardUrl = ownerSlug && shopSlug
     ? `/dashboard/${encodeURIComponent(ownerSlug)}/${encodeURIComponent(shopSlug)}`
     : shopSlug ? `/dashboard/shops/${encodeURIComponent(shopSlug)}` : "/dashboard/login";
@@ -157,11 +161,12 @@ function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?
     <div className="market-page">
       <BrandHeader eventName={currentName} />
       <main className="market-main">
+        {shopImageUrl && !shopImageMissing && <div className="shop-cover"><img src={shopImageUrl} alt={`${currentName} storefront`} onError={() => setShopImageMissing(true)} /></div>}
         <section className="hero" aria-labelledby="hero-heading">
           <div className="hero-copy">
-            <p className="hero-kicker"><span />A neighborhood market, made easier</p>
-            <h1 id="hero-heading">A little market.<br /><span>A lot less waiting.</span></h1>
-            <p className="hero-description">Build your order by voice or chat, then pay securely with PayPal. We’ll have it ready at the stall.</p>
+            <p className="hero-kicker"><span />Order from your neighborhood stall</p>
+            <h1 className="hero-shop-name" id="hero-heading">{currentName}</h1>
+            <p className="hero-description">Choose from today’s menu, order by voice or chat, and pay securely with PayPal. We’ll have it ready at the stall.</p>
             <a className="hero-action" href="#market-menu">Explore today’s menu <ArrowDown size={16} aria-hidden="true" /></a>
           </div>
           <div className="hero-note" aria-label="Market note">
