@@ -4,6 +4,7 @@ import { DEFAULT_SHOP_ID, incrementCatalogRevision } from "./database.js";
 import { ApiError } from "./errors.js";
 import { readCart } from "./inventory.js";
 import type { CurrencyCode } from "../shared/currency.js";
+import { formatPickupNumber, pickupDateForShop } from "./pickup-number.js";
 import * as firestoreOrderState from "./firestore-order-state.js";
 
 export type OrderState = "creating_payment" | "create_unknown" | "create_failed" | "pending_payment" | "capture_unknown" | "paid" | "cancelled" | "expired" | "collected" | "refund_unknown" | "refunded";
@@ -11,8 +12,8 @@ export interface OrderRow {
   id: string; shop_id: string; session_hash: string; client_request_key: string; request_fingerprint: string;
   cart_version: number; catalog_revision: number; state: OrderState; currency: CurrencyCode;
   total_minor: number; paypal_create_request_id: string; paypal_capture_request_id: string;
-  paypal_refund_request_id: string; paypal_order_id: string | null; paypal_capture_id: string | null;
-  paypal_refund_id: string | null; pickup_code: string | null; expires_at: string;
+  paypal_refund_request_id: string; paypal_order_id: string | null; paypal_approve_url: string | null; paypal_capture_id: string | null;
+  paypal_refund_id: string | null; pickup_code: string | null; pickup_number: string | null; pickup_date: string | null; expires_at: string;
   refund_restock_requested: number | null; restock_applied_at: string | null;
   create_attempt_started_at: string | null; captured_at: string | null; refunded_at: string | null;
   created_at: string; updated_at: string;
@@ -76,6 +77,15 @@ export function listOrderLines(db: Db, orderId: string, shopId?: string): OrderL
   return (shopId ? db.prepare(query).all(orderId, shopId) : db.prepare(query).all(orderId)) as OrderLineRow[];
 }
 
+export function listPendingPaymentOrders(db: FirestoreDb, shopId: string): Promise<OrderRow[]>;
+export function listPendingPaymentOrders(db: SqliteDb, shopId: string): OrderRow[];
+export function listPendingPaymentOrders(db: Db, shopId: string): OrderRow[] | Promise<OrderRow[]>;
+export function listPendingPaymentOrders(db: Db, shopId: string): OrderRow[] | Promise<OrderRow[]> {
+  if ((db as FirestoreDb).firestoreBrand) return firestoreOrderState.listPendingPaymentOrders(db as FirestoreDb, shopId);
+  return db.prepare(`SELECT * FROM orders WHERE shop_id = ? AND state = 'pending_payment'
+    AND expires_at > ? ORDER BY created_at ASC LIMIT 50`).all(shopId, new Date().toISOString()) as OrderRow[];
+}
+
 export interface ReservationInput {
   sessionHash: string; clientRequestKey: string; cartVersion: number; catalogRevision: number; shopId?: string;
 }
@@ -120,18 +130,18 @@ export function reserveOrder(db: Db, input: ReservationInput): ReservedOrder | P
   return transaction.immediate();
 }
 
-export function setCreatedOrder(db: FirestoreDb, orderId: string, paypalOrderId: string, shopId?: string): Promise<OrderRow>;
-export function setCreatedOrder(db: SqliteDb, orderId: string, paypalOrderId: string, shopId?: string): OrderRow;
-export function setCreatedOrder(db: Db, orderId: string, paypalOrderId: string, shopId?: string): OrderRow | Promise<OrderRow>;
-export function setCreatedOrder(db: Db, orderId: string, paypalOrderId: string, shopId = DEFAULT_SHOP_ID): OrderRow | Promise<OrderRow> {
-  if ((db as FirestoreDb).firestoreBrand) return firestoreOrderState.setCreatedOrder(db as FirestoreDb, orderId, paypalOrderId, shopId);
+export function setCreatedOrder(db: FirestoreDb, orderId: string, paypalOrderId: string, shopId?: string, approveUrl?: string | null): Promise<OrderRow>;
+export function setCreatedOrder(db: SqliteDb, orderId: string, paypalOrderId: string, shopId?: string, approveUrl?: string | null): OrderRow;
+export function setCreatedOrder(db: Db, orderId: string, paypalOrderId: string, shopId?: string, approveUrl?: string | null): OrderRow | Promise<OrderRow>;
+export function setCreatedOrder(db: Db, orderId: string, paypalOrderId: string, shopId = DEFAULT_SHOP_ID, approveUrl: string | null = null): OrderRow | Promise<OrderRow> {
+  if ((db as FirestoreDb).firestoreBrand) return firestoreOrderState.setCreatedOrder(db as FirestoreDb, orderId, paypalOrderId, shopId, approveUrl);
   const transaction = db.transaction(() => {
     const order = findOrder(db as SqliteDb, orderId, shopId);
     if (!order || order.state !== "creating_payment" && order.state !== "create_unknown") {
       throw new ApiError(409, "order_state_conflict", "This order is no longer awaiting PayPal checkout.");
     }
-    db.prepare(`UPDATE orders SET paypal_order_id = ?, state = 'pending_payment', updated_at = ? WHERE id = ? AND shop_id = ?`)
-      .run(paypalOrderId, new Date().toISOString(), orderId, shopId);
+    db.prepare(`UPDATE orders SET paypal_order_id = ?, paypal_approve_url = ?, state = 'pending_payment', updated_at = ? WHERE id = ? AND shop_id = ?`)
+      .run(paypalOrderId, approveUrl, new Date().toISOString(), orderId, shopId);
     incrementCatalogRevision(db as SqliteDb, shopId);
     return findOrder(db as SqliteDb, orderId, shopId)!;
   });
@@ -254,8 +264,14 @@ export function completeCapture(db: Db, orderId: string, captureId: string, shop
     }
     clearCartIfUnchanged(db, order);
     const capturedAt = new Date().toISOString();
-    db.prepare(`UPDATE orders SET state = 'paid', paypal_capture_id = ?, pickup_code = ?, captured_at = ?, updated_at = ? WHERE id = ? AND shop_id = ?`)
-      .run(captureId, newPickupCode(db), capturedAt, capturedAt, orderId, order.shop_id);
+    const shop = db.prepare("SELECT time_zone FROM shops WHERE id = ?").get(order.shop_id) as { time_zone: string } | undefined;
+    const pickupDate = pickupDateForShop(new Date(capturedAt), shop?.time_zone ?? "Asia/Tokyo");
+    const current = db.prepare(`SELECT MAX(CAST(pickup_number AS INTEGER)) AS current FROM orders
+      WHERE shop_id = ? AND pickup_date = ?`).get(order.shop_id, pickupDate) as { current: number | null };
+    const pickupNumber = formatPickupNumber((current.current ?? 0) + 1);
+    db.prepare(`UPDATE orders SET state = 'paid', paypal_capture_id = ?, pickup_code = ?, pickup_number = ?, pickup_date = ?,
+      captured_at = ?, updated_at = ? WHERE id = ? AND shop_id = ?`)
+      .run(captureId, newPickupCode(db), pickupNumber, pickupDate, capturedAt, capturedAt, orderId, order.shop_id);
     incrementCatalogRevision(db as SqliteDb, order.shop_id);
     return findOrder(db as SqliteDb, orderId, order.shop_id)!;
   });

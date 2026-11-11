@@ -1,11 +1,13 @@
 import { INSTANCE_LOADING_STATE, PayPalOneTimePaymentButton, PayPalProvider, usePayPal } from "@paypal/react-paypal-js/sdk-v6";
 import { Check, CircleHelp, LockKeyhole, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { QRCodeSVG } from "qrcode.react";
 import type { AppConfig, Cart, CreateOrderResponse, Order } from "../types";
 import { ApiError, get, post } from "../lib/api";
 import { checkoutStorageKey, persistCheckoutAttempt, readCheckoutAttempt } from "../lib/checkout-storage";
 import { createRequestKey, money } from "../lib/format";
+import { kioskApprovalQrUrl } from "../lib/checkout-display";
 import { isReceiptReady } from "../lib/order-status";
 import { Alert } from "./Feedback";
 
@@ -26,11 +28,13 @@ type Attempt = {
   clientRequestKey: string;
   orderId?: string;
   paypalOrderId?: string;
+  approveUrl?: string;
   totalMinor?: number;
   currency?: string;
   cartVersion?: number;
   catalogRevision?: number;
   pickupCode?: string;
+  items?: Array<{ name: string; quantity: number }>;
   state: CheckoutState;
   message?: string;
 };
@@ -88,11 +92,15 @@ function CheckoutButtons({ attempt, clientId, onCapture, onCancel, onSdkError, o
   );
 }
 
-export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppConfig | null; cart: Cart; cartBusy: boolean; onCart: (cart: Cart) => void }) {
+export function CheckoutPanel({ config, cart, cartBusy, onCart, kioskMode = false, confirmOrderKey = 0, onActiveChange }: {
+  config: AppConfig | null; cart: Cart; cartBusy: boolean; onCart: (cart: Cart) => void;
+  kioskMode?: boolean; confirmOrderKey?: number; onActiveChange?: (active: boolean) => void;
+}) {
   const [attempt, setAttempt] = useState<Attempt>(restoreAttempt);
   const [busy, setBusy] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [sdkRevision, setSdkRevision] = useState(0);
+  const handledConfirmKey = useRef(0);
 
   useEffect(() => {
     try {
@@ -109,9 +117,11 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
     const clientRequestKey = retry ? attempt.clientRequestKey : createRequestKey();
     const requestCartVersion = retry ? attempt.cartVersion ?? cart.cartVersion : cart.cartVersion;
     const requestCatalogRevision = retry ? attempt.catalogRevision ?? cart.catalogRevision : cart.catalogRevision;
+    const orderItems = cart.items.map(({ name, quantity }) => ({ name, quantity }));
     setBusy(true);
     setStatusMessage("");
-    setAttempt({ clientRequestKey, orderId: retry ? attempt.orderId : undefined, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, state: "creating" });
+    setAttempt({ clientRequestKey, orderId: retry ? attempt.orderId : undefined, cartVersion: requestCartVersion,
+      catalogRevision: requestCatalogRevision, items: orderItems, state: "creating" });
     try {
       const result = await post<CreateOrderResponse>("/api/orders", {
         cartVersion: requestCartVersion,
@@ -119,17 +129,17 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
         clientRequestKey,
       });
       if (result.state === "create_failed") {
-        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, state: "error", message: "PayPal could not create this checkout. The reservation was released; start a fresh order when you’re ready." });
+        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, items: orderItems, state: "error", message: "PayPal could not create this checkout. The reservation was released; start a fresh order when you’re ready." });
         setStatusMessage("This checkout could not be created. Your cart is still available for a fresh attempt.");
       } else if (result.state === "expired" || result.state === "cancelled") {
-        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, state: "cancelled", message: "This checkout has ended. Your cart is still available." });
+        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, items: orderItems, state: "cancelled", message: "This checkout has ended. Your cart is still available." });
         setStatusMessage("This checkout has ended. Start a new order to try again.");
       } else if (isReceiptReady(result.state, result.pickupCode)) {
-        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, state: "paid", totalMinor: result.totalMinor, currency: result.currency, pickupCode: result.pickupCode });
+        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, items: orderItems, state: "paid", totalMinor: result.totalMinor, currency: result.currency, pickupCode: result.pickupCode });
       } else if (result.state === "capture_unknown") {
-        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, state: "capture_unknown", totalMinor: result.totalMinor, currency: result.currency, message: "This order’s payment status needs checking. Use the explicit capture retry below." });
+        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, items: orderItems, state: "capture_unknown", totalMinor: result.totalMinor, currency: result.currency, message: "This order’s payment status needs checking. Use the explicit capture retry below." });
       } else if (result.state === "create_unknown" || !result.paypalOrderId) {
-        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, state: "create_unknown", message: "The order is still being created. Retry safely to recover the same checkout." });
+        setAttempt({ clientRequestKey, orderId: result.orderId, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, items: orderItems, state: "create_unknown", message: "The order is still being created. Retry safely to recover the same checkout." });
       } else {
         setAttempt({
           clientRequestKey,
@@ -137,8 +147,10 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
           catalogRevision: requestCatalogRevision,
           orderId: result.orderId,
           paypalOrderId: result.paypalOrderId,
+          approveUrl: result.approveUrl ?? undefined,
           totalMinor: result.totalMinor ?? cart.totalMinor,
           currency: result.currency ?? cart.currency,
+          items: orderItems,
           state: "ready",
         });
       }
@@ -146,7 +158,7 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
       const uncertain = !(error instanceof ApiError) || error.status === 0 || error.status >= 500 || error.code === "idempotency_conflict";
       if (error instanceof ApiError && error.code === "cart_changed") {
         void refreshCart();
-        setAttempt({ clientRequestKey, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, state: "error", message: error.message });
+        setAttempt({ clientRequestKey, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, items: orderItems, state: "error", message: error.message });
         setStatusMessage(`${error.message} Your order was not reserved. Review the updated cart, then confirm again.`);
       } else {
         setAttempt((current) => ({ ...current, clientRequestKey, cartVersion: requestCartVersion, catalogRevision: requestCatalogRevision, state: uncertain ? "create_unknown" : "error", message: error instanceof Error ? error.message : "We could not confirm order creation. Retry the same request." }));
@@ -157,7 +169,19 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
     }
   };
 
-  const capture = async () => {
+  const createRef = useRef(create);
+  createRef.current = create;
+  useEffect(() => {
+    if (confirmOrderKey <= handledConfirmKey.current) return;
+    handledConfirmKey.current = confirmOrderKey;
+    if (!["idle", "cancelled", "error", "paid"].includes(attempt.state)) {
+      setStatusMessage("A checkout is already in progress.");
+      return;
+    }
+    void createRef.current(false);
+  }, [attempt.state, confirmOrderKey]);
+
+  const capture = async (quiet = false) => {
     if (!attempt.orderId || busy) return;
     setBusy(true);
     setStatusMessage("");
@@ -169,13 +193,17 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
         setStatusMessage("Payment complete. Your order is ready for pickup.");
         void refreshCart();
       } else {
-        update({ state: "capture_unknown", message: "Payment approval was received. We are checking the capture; your pickup code will appear only after it is confirmed." });
+        update({ state: "capture_unknown", message: "Payment approval was received. We are checking the capture; your pickup number will appear only after it is confirmed." });
       }
     } catch (error) {
       if (error instanceof ApiError && error.code === "order_expired") {
         setAttempt((current) => ({ ...current, state: "cancelled", orderId: undefined, paypalOrderId: undefined, message: "This checkout expired. Your cart is still available." }));
         setStatusMessage("This checkout expired. Start a new order to continue.");
         void refreshCart();
+        return;
+      }
+      if (quiet && error instanceof ApiError && error.code === "payment_not_approved") {
+        update({ state: "ready", message: "Waiting for the customer to approve this payment." });
         return;
       }
       const uncertain = !(error instanceof ApiError) || error.status === 0 || error.status >= 500;
@@ -217,7 +245,7 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
       const order = await get<Order>(`/api/orders/${encodeURIComponent(attempt.orderId)}`);
       if (isReceiptReady(order.state, order.pickupCode)) {
         setAttempt((current) => ({ ...current, ...order, state: "paid", pickupCode: order.pickupCode! }));
-        setStatusMessage("Payment is confirmed. Your pickup code is ready.");
+        setStatusMessage("Payment is confirmed. Your pickup number is ready.");
       } else if (order.state === "pending_payment") {
         update({ state: "ready", message: "Payment is still pending. You can continue checkout or retry capture after approval." });
       } else if (order.state === "capture_unknown") {
@@ -242,10 +270,22 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
   const sdkError = () => setStatusMessage("PayPal checkout had a problem. Your order is still pending; retry the PayPal button or cancel checkout.");
   const retrySdk = () => setSdkRevision((value) => value + 1);
   const isAvailable = Boolean(config?.paypalEnabled && config.paypalClientId);
+  const readStatusRef = useRef<() => Promise<void>>(async () => {});
+  readStatusRef.current = readStatus;
+  const checkoutActive = !["idle", "cancelled", "error"].includes(attempt.state);
+  const approvalQrUrl = kioskApprovalQrUrl(kioskMode, attempt.approveUrl);
+  const hasApprovalQr = approvalQrUrl !== null;
+
+  useEffect(() => { onActiveChange?.(checkoutActive); }, [checkoutActive, onActiveChange]);
+  useEffect(() => {
+    if (!kioskMode || attempt.state !== "ready" || !attempt.orderId || !hasApprovalQr) return;
+    const timer = window.setInterval(() => { void readStatusRef.current(); }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [attempt.orderId, attempt.state, hasApprovalQr, kioskMode]);
   const orderStatusPath = `${currentShopPath()}/orders/${encodeURIComponent(attempt.orderId ?? "")}`;
 
   return (
-    <section className="checkout-panel" aria-labelledby="checkout-heading">
+    <section className="checkout-panel" id="checkout-panel" aria-labelledby="checkout-heading">
       <div className="checkout-heading"><LockKeyhole size={17} aria-hidden="true" /><h3 id="checkout-heading">Secure checkout</h3><span>PayPal sandbox</span></div>
       {!isAvailable ? (
         <div className="setup-notice"><CircleHelp size={19} aria-hidden="true" /><p>PayPal sandbox is not configured yet. Add the public sandbox client ID and server credentials to enable checkout. No payment has been started.</p></div>
@@ -256,8 +296,16 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
       {attempt.state === "create_unknown" && <div className="checkout-recovery"><Alert>{attempt.message ?? "The result is uncertain. Retry the same order request."}</Alert><button className="button button-secondary full-width" onClick={retryCreate} disabled={busy || cartBusy}><RefreshCw size={16} aria-hidden="true" />Retry order creation</button></div>}
       {attempt.state === "ready" && isAvailable && (
         <div className="paypal-area">
-          <p className="checkout-status" role="status">Your order is reserved. Approve the total in PayPal to complete payment.</p>
-          <CheckoutButtons key={sdkRevision} attempt={attempt} clientId={config!.paypalClientId!} onCapture={capture} onCancel={cancel} onSdkError={sdkError} onRetrySdk={retrySdk} />
+          <p className="checkout-status" role="status">{kioskMode ? "Your order is reserved. Scan the PayPal code with your phone." : "Your order is ready. Continue with PayPal."}</p>
+          {approvalQrUrl && <div className="paypal-payment-qr">
+            <QRCodeSVG value={approvalQrUrl} size={220} level="M" marginSize={3} title="PayPal payment QR code" />
+            <strong>{money(attempt.totalMinor ?? cart.totalMinor, attempt.currency ?? cart.currency)}</strong>
+            <ul className="checkout-order-items">{(attempt.items ?? cart.items.map(({ name, quantity }) => ({ name, quantity }))).map((item, index) => <li key={`${item.name}-${index}`}><span>{item.name}</span><strong>× {item.quantity}</strong></li>)}</ul>
+            <span>Scan with your phone. This screen will confirm payment automatically.</span>
+            <a className="paypal-payment-link" href={approvalQrUrl} target="_blank" rel="noreferrer">{approvalQrUrl}</a>
+          </div>}
+          {(!kioskMode || !hasApprovalQr) && <CheckoutButtons key={sdkRevision} attempt={attempt} clientId={config!.paypalClientId!} onCapture={capture} onCancel={cancel} onSdkError={sdkError} onRetrySdk={retrySdk} />}
+          {hasApprovalQr && <button className="button button-secondary full-width" type="button" onClick={() => void readStatus()} disabled={busy}>Check payment status</button>}
           {statusMessage && <Alert>{statusMessage}</Alert>}
           {attempt.orderId && <button className="text-button" type="button" onClick={cancel} disabled={busy}>Cancel checkout</button>}
         </div>
@@ -277,8 +325,9 @@ export function CheckoutPanel({ config, cart, cartBusy, onCart }: { config: AppC
           <p className="eyebrow">Your market order</p>
           <h4>See you at the stall!</h4>
           <div className="receipt-summary"><span>Order <strong>#{attempt.orderId?.slice(0, 8).toUpperCase()}</strong></span><span>Total <strong>{money(attempt.totalMinor ?? cart.totalMinor, attempt.currency ?? cart.currency)}</strong></span></div>
-          <p>Show this pickup code to the organizer.</p>
-          <div className="pickup-code"><span>Pickup code</span><strong>{attempt.pickupCode}</strong></div>
+          <ul className="checkout-order-items">{attempt.items?.map((item, index) => <li key={`${item.name}-${index}`}><span>{item.name}</span><strong>× {item.quantity}</strong></li>)}</ul>
+          <p>Show this pickup number to the organizer.</p>
+          <div className="pickup-code"><span>Pickup number</span><strong>{attempt.pickupCode}</strong></div>
           {attempt.orderId && <Link className="text-button" to={orderStatusPath}>Open order status</Link>}
         </div>
       )}

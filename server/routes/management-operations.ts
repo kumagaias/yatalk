@@ -1,8 +1,10 @@
 import express, { Router, type Request } from "express";
+import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../database.js";
 import { ApiError } from "../errors.js";
 import { organizerFacts, organizerSummary } from "../analytics.js";
+import { currencyDigits } from "../../shared/currency.js";
 import { createProducts, patchProduct, receiveProductStock } from "../inventory.js";
 import { buildRestockPlan, isInventoryQuestion } from "../restock-plan.js";
 import { requireExactOrigin, organizerRateKey } from "../security.js";
@@ -10,21 +12,45 @@ import { createRateLimit } from "../rate-limit.js";
 import { parseBody, requireJson, requireEmptyBody, routeParam } from "../http.js";
 import { logStage } from "../logging.js";
 import { adminOrder, audit, collectOrder, refundOrder } from "../services/orders.js";
+import { counterPaymentQueue } from "../services/payment-queue.js";
 import type { AiProvider } from "../services/ai.js";
+import type { AgLlmRequest } from "ag-studio";
 import type { PayPalProvider } from "../services/paypal.js";
 import { createProductsRequestSchema, menuAssistantRequestSchema, menuAssistantResponseSchema, menuExtractionSchema, organizerQuestionSchema, productPatchSchema, receiveStockSchema, refundRequestSchema } from "../../shared/schemas.js";
 import { detectMenuImageMimeType, MAX_MENU_IMAGE_BYTES, MENU_IMAGE_MIME_TYPES, type MenuImageMimeType } from "../menu-image.js";
 
 const menuScansInFlight = new Set<string>();
+const studioTurnRequestSchema = z.object({
+  input: z.array(z.unknown()).max(80),
+  instructions: z.string().max(16_000).optional(),
+  tools: z.array(z.object({
+    name: z.string().min(1).max(128),
+    description: z.string().max(4_000),
+    parameters: z.record(z.string(), z.unknown()),
+    kind: z.enum(["client", "server", "provided"]).optional(),
+    provider: z.unknown().optional(),
+  }).strict()).max(64).optional(),
+  toolChoice: z.union([
+    z.enum(["auto", "none", "required"]),
+    z.object({ name: z.string().min(1).max(128) }).strict(),
+  ]).optional(),
+  responseFormat: z.union([
+    z.object({ type: z.literal("text") }).strict(),
+    z.object({ type: z.literal("json"), name: z.string().min(1).max(128), description: z.string().max(1_000).optional(), schema: z.record(z.string(), z.unknown()) }).strict(),
+  ]),
+}).strict();
 
 export function managementOperations(db: Db, config: AppConfig, paypal: PayPalProvider, ai: AiProvider,
-  shopIdOf: (request: Request) => string, actorIdOf: (request: Request) => string | null = () => null): Router {
+  shopIdOf: (request: Request) => string, actorIdOf: (request: Request) => string | null = () => null,
+  studioEnabled = false): Router {
   const router = Router();
   const originOnly = requireExactOrigin(config);
   const askLimit = createRateLimit(10, 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
   const mutationLimit = createRateLimit(30, 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
   const menuScanLimit = createRateLimit(4, 15 * 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
   const menuAssistantLimit = createRateLimit(12, 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
+  const studioTurnLimit = createRateLimit(24, 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
+  const counterQueueLimit = createRateLimit(60, 60_000, (request) => request.ownerUserId ?? organizerRateKey(request));
   const parseMenuImage = express.raw({
     type: (request) => MENU_IMAGE_MIME_TYPES.includes((request.headers["content-type"] ?? "").split(";", 1)[0]!.trim().toLowerCase() as MenuImageMimeType),
     limit: MAX_MENU_IMAGE_BYTES,
@@ -37,8 +63,58 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
       shopImageEnabled: !!config.shopImageBucket });
   });
 
+  router.get("/studio/data", async (request, response) => {
+    if (!studioEnabled || !request.shop || !request.ownerUserId) throw new ApiError(404, "not_found", "The requested resource was not found.");
+    const facts = await organizerFacts(db, request.shop.timeZone, new Date(), shopIdOf(request), { includeSalesTrend: true });
+    const divisor = currencyDigits(facts.currency) === 0 ? 1 : 100;
+    const todayByProduct = new Map(facts.unitsSold.map((item) => [item.id, item.units_sold]));
+    const weekByProduct = new Map(facts.unitsSoldLast7Days.map((item) => [item.id, item.units_sold]));
+    response.setHeader("Cache-Control", "private, no-store");
+    response.json({
+      overview: {
+        businessDate: facts.date,
+        currency: facts.currency,
+        grossSales: facts.grossCapturedMinor / divisor,
+        netSales: facts.netCapturedMinor / divisor,
+        paidOrders: facts.netOrderCount,
+        refundedOrders: facts.refundedOrderCount,
+        lowStockItems: facts.lowStockCount,
+      },
+      items: facts.products.map((product) => ({
+        itemName: product.name,
+        unitPrice: product.priceMinor / divisor,
+        stockOnHand: product.stockOnHand,
+        reservedUnits: product.reserved,
+        availableUnits: product.available,
+        unitsSoldToday: todayByProduct.get(product.id) ?? 0,
+        unitsSoldLast7Days: weekByProduct.get(product.id) ?? 0,
+      })),
+    });
+  });
+
+  router.post("/studio/turn", originOnly, studioTurnLimit, async (request, response) => {
+    if (!studioEnabled || !request.shop || !request.ownerUserId) throw new ApiError(404, "not_found", "The requested resource was not found.");
+    requireJson(request);
+    const turn = parseBody(studioTurnRequestSchema, request) as AgLlmRequest;
+    if (!ai.runStudioTurn) throw new ApiError(503, "assistant_unavailable", "The analytics assistant is not configured. The dashboard remains available.");
+    logStage(request.requestId, "gemini_ag_studio_turn", "start");
+    try {
+      const result = await ai.runStudioTurn(turn);
+      logStage(request.requestId, "gemini_ag_studio_turn", "success");
+      response.json(result);
+    } catch (error) {
+      logStage(request.requestId, "gemini_ag_studio_turn", "failure", error);
+      throw new ApiError(503, "assistant_unavailable", "The analytics assistant is unavailable. The dashboard remains available.");
+    }
+  });
+
   router.get("/orders/:id", async (request, response) => {
     response.json(await adminOrder(db, routeParam(request, "id"), shopIdOf(request)));
+  });
+
+  router.get("/counter-orders", counterQueueLimit, async (request, response) => {
+    response.setHeader("Cache-Control", "private, no-store");
+    response.json({ orders: await counterPaymentQueue(db, paypal, shopIdOf(request)) });
   });
 
   router.post("/menu/scan", originOnly, menuScanLimit, parseMenuImage, async (request, response) => {

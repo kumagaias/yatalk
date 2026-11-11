@@ -13,7 +13,7 @@
   .site-header { height: 64px; padding: 0 18px; }
   .brand { font-size: 22px; }
   .event-name { font-size: 13px; }
-  .organizer-link { font-size: 16px; }
+  .counter-link, .organizer-link { font-size: 16px; }
   .market-main, .dashboard-main { width: min(100% - 32px, 560px); }
   .hero { min-height: 315px; grid-template-columns: minmax(0, 1fr) 145px; gap: 8px; padding: 37px 3px 32px; }
   .hero h1 { font-size: clamp(38px, 9vw, 53px); }
@@ -56,7 +56,9 @@
   .brand { gap: 6px; font-size: 20px; }
   .brand-mark { width: 27px; height: 27px; }
   .event-name { max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-  .organizer-link { gap: 2px; font-size: 16px; }
+  .header-actions { gap: 3px; }
+  .counter-link, .organizer-link { gap: 2px; min-width: 44px; justify-content: center; padding: 0 5px; font-size: 16px; }
+  .counter-link span, .organizer-link span { display: none; }
   .market-main, .dashboard-main { width: calc(100% - 28px); }
   .hero { min-height: 300px; grid-template-columns: minmax(0, 1fr) 105px; gap: 7px; }
   .hero h1 { font-size: clamp(35px, 10vw, 45px); }
@@ -82,6 +84,7 @@
   .checkout-panel { margin-right: -2px; margin-left: -2px; padding: 12px; }
   .market-footer { font-size: 12px; }
   .auth-card { padding: 26px 21px; }
+  .sample-menu-choice { align-items: flex-start; }
   .auth-card h1, .page-title { font-size: 34px; }
   .metric-grid { grid-template-columns: 1fr; }
   .metric-card { min-height: 85px; }

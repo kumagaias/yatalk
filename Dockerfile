@@ -1,4 +1,4 @@
-ARG NODE_IMAGE=node:24-alpine3.24@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
+ARG NODE_IMAGE=node:24.22.3-alpine3.24@sha256:d8d97e479cdc64f052f81f129362168717c59783ade8dcc1abd22e1cca8dbd7c
 FROM ${NODE_IMAGE} AS build
 
 WORKDIR /app
@@ -7,6 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY index.html vite.config.ts tsconfig.json tsconfig.server.json ./
+COPY public ./public
 COPY src ./src
 COPY shared ./shared
 COPY server ./server

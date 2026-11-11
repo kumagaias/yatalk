@@ -1,5 +1,5 @@
 import { ImageUp } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { putImage } from "../lib/api";
 import { Alert } from "./Feedback";
 
@@ -32,20 +32,25 @@ export function ShopImageCard({ ownerSlug, shopSlug, shopName, enabled }: {
     finally { setBusy(false); }
   };
 
+  const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const selected = event.target.files?.[0] ?? null;
+    setError("");
+    if (selected && selected.size > 2 * 1024 * 1024) { setFile(null); setError("Shop photos must be 2 MB or smaller."); return; }
+    setFile(selected);
+  };
+
   return <section className="dashboard-card shop-image-card" aria-labelledby="shop-image-heading">
     <div className="section-heading"><div><p className="eyebrow">Your storefront</p><h2 id="shop-image-heading"><ImageUp size={19} aria-hidden="true" />Shop photo</h2></div></div>
-    {preview ? <img className="shop-image-preview" src={preview} alt={`Preview of ${shopName}`} /> : !remoteImageMissing
-      ? <img className="shop-image-preview" src={`${imageUrl}${updatedAt ? `?updated=${updatedAt}` : ""}`} alt={`${shopName} storefront`} onError={() => setRemoteImageMissing(true)} />
-      : <div className="shop-image-empty">Add a photo to make your storefront easy to recognize.</div>}
+    <div className="shop-image-editor">
+      {preview ? <img className="shop-image-preview" src={preview} alt={`Preview of ${shopName}`} /> : !remoteImageMissing
+        ? <img className="shop-image-preview" src={`${imageUrl}${updatedAt ? `?updated=${updatedAt}` : ""}`} alt={`${shopName} storefront`} onError={() => setRemoteImageMissing(true)} />
+        : <div className="shop-image-empty">Add a photo to make your storefront easy to recognize.</div>}
+      <label className="shop-image-edit" aria-label="Choose a shop photo" aria-disabled={!enabled}><ImageUp size={18} aria-hidden="true" /><span>Change</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={!enabled} onChange={chooseFile} /></label>
+    </div>
     <p>Choose a JPEG, PNG, or WebP photo up to 2 MB. The image is stored in Cloud Storage and shown on your public shop page.</p>
     {!enabled && <p className="form-help form-help-error" role="status">Image storage is not configured for this deployment yet.</p>}
     <form onSubmit={(event) => void submit(event)}>
-      <div className="form-field"><label htmlFor="shop-image-file">Shop image</label><input id="shop-image-file" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
-        const selected = event.target.files?.[0] ?? null;
-        setError("");
-        if (selected && selected.size > 2 * 1024 * 1024) { setFile(null); setError("Shop photos must be 2 MB or smaller."); return; }
-        setFile(selected);
-      }} /></div>
+      {file && <p className="form-help" role="status">Selected: {file.name}</p>}
       {error && <Alert>{error}</Alert>}
       <button className="button button-secondary full-width" type="submit" disabled={!enabled || !file || busy}>{busy ? "Saving photo…" : "Save shop photo"}</button>
     </form>

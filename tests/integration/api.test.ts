@@ -326,6 +326,26 @@ test("verified capture and refund webhooks reconcile once and apply the saved re
   });
 });
 
+test("a verified PayPal approval webhook captures once and issues a pickup number", async () => {
+  const paypal = new FakePayPal();
+  await withServer(paypal, async (url) => {
+    const visitor = await visitorSession(url);
+    const added = await json(`${url}/api/cart/items`, { method: "POST", headers: postHeaders(visitor.cookie),
+      body: JSON.stringify({ action: "add", productId: "iced-tea", quantity: 1, cartVersion: 0, catalogRevision: visitor.cart.catalogRevision }) });
+    const created = await json(`${url}/api/orders`, { method: "POST", headers: postHeaders(visitor.cookie),
+      body: JSON.stringify({ cartVersion: added.body.cartVersion, catalogRevision: added.body.catalogRevision, clientRequestKey: "00000000-0000-4000-8000-000000000099" }) });
+    const headers = { "content-type": "application/json", "paypal-auth-algo": "test", "paypal-cert-url": "https://example.test/cert",
+      "paypal-transmission-id": "approval-tx", "paypal-transmission-sig": "sig", "paypal-transmission-time": "now" };
+    const approved = { id: "approval-event", event_type: "CHECKOUT.ORDER.APPROVED", resource: { id: created.body.paypalOrderId } };
+    assert.equal((await fetch(`${url}/api/webhooks/paypal`, { method: "POST", headers, body: JSON.stringify(approved) })).status, 204);
+    assert.equal((await fetch(`${url}/api/webhooks/paypal`, { method: "POST", headers, body: JSON.stringify(approved) })).status, 204);
+    const receipt = await json(`${url}/api/orders/${created.body.orderId}`, { headers: { cookie: visitor.cookie } });
+    assert.equal(receipt.body.state, "paid");
+    assert.match(receipt.body.pickupCode, /^\d{3}$/);
+    assert.deepEqual(paypal.captureCalls, [created.body.paypalOrderId]);
+  });
+});
+
 test("capture reservation cannot expire while PayPal status is being checked", async () => {
   const paypal = new FakePayPal();
   let markReadStarted!: () => void;

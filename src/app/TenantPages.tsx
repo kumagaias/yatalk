@@ -12,6 +12,7 @@ import { useParams } from "react-router-dom";
 import type { MenuExtraction } from "../../shared/schemas.js";
 import { postImage } from "../lib/api";
 import { loadSampleMenuFile } from "../lib/sample-menu";
+import { SampleMenuPreview } from "../components/SampleMenuPreview";
 
 type ShopSummary = { slug: string; name: string; status: "active" | "inactive"; ownerSlug?: string; currency?: string };
 type OwnerSession = { authenticated: boolean; email?: string; displayName?: string; ownerSlug?: string; defaultCurrency?: string; emailVerified?: boolean };
@@ -195,7 +196,7 @@ export function ShopSetupPage() {
               onChange={(event) => { const file = event.target.files?.[0] ?? null; setError(""); setMenuPhoto(file && file.size <= 4 * 1024 * 1024 ? file : null); if (file && file.size > 4 * 1024 * 1024) setError("Menu photos must be 4 MB or smaller."); }} />
               <p className="form-help">JPEG, PNG, WebP, HEIC, or HEIF · 4 MB max. Photos are sent to Google Cloud for menu reading and are not stored by Yatalk.</p>
             </div>
-            <div className="sample-menu-choice"><img src="/menu-ocr-sample.png" alt="Sample stall menu with grilled onigiri, iced tea, and mikan jelly" /><div><strong>Try the sample menu</strong><button className="button button-secondary" type="button" onClick={() => void chooseSampleMenu()} disabled={busy}>Use sample photo</button></div></div>
+            <div className="sample-menu-choice"><SampleMenuPreview /><div><strong>Try the sample menu</strong><button className="button button-secondary" type="button" onClick={() => void chooseSampleMenu()} disabled={busy}>Use sample photo</button></div></div>
             {menuPhoto && <p className="form-help" role="status">Selected: {menuPhoto.name}</p>}
           </div>
           {status && <p className="form-help" role="status">{status}</p>}
@@ -405,7 +406,7 @@ export function ShopOrderPage() {
       {order && <>
         <p>Order <strong>{order.orderId}</strong> · {order.state.replaceAll("_", " ")}</p>
         <p>Total: <strong>{money(order.totalMinor, order.currency)}</strong></p>
-        {order.pickupCode && <div className="pickup-code"><span>Pickup code</span><strong>{order.pickupCode}</strong></div>}
+        {order.pickupCode && <div className="pickup-code"><span>Pickup number</span><strong>{order.pickupCode}</strong></div>}
       </>}
       <Link className="button button-secondary full-width" to={shopSlug ? ownerSlug ? `/${encodeURIComponent(ownerSlug)}/${encodeURIComponent(shopSlug)}` : `/shops/${encodeURIComponent(shopSlug)}` : "/"}>Back to the shop</Link>
     </main>

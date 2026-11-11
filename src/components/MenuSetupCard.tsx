@@ -6,6 +6,7 @@ import { ApiError, post, postImage } from "../lib/api";
 import { Alert } from "./Feedback";
 import { amountFromMinor, parseAmountToMinor } from "../../shared/currency.js";
 import { loadSampleMenuFile } from "../lib/sample-menu";
+import { SampleMenuPreview } from "./SampleMenuPreview";
 
 type Draft = {
   key: string;
@@ -153,7 +154,7 @@ export function MenuSetupCard({ onSaved, currency = "JPY", assistantSuggestions 
           <ScanLine size={17} aria-hidden="true" />{reading ? "Reading menu…" : "Read menu photo"}
         </button>
       </div>
-      <div className="sample-menu-choice"><img src="/menu-ocr-sample.png" alt="Sample stall menu with grilled onigiri, iced tea, and mikan jelly" /><div><strong>Want to try OCR first?</strong><button className="button button-secondary" type="button" onClick={() => void useSamplePhoto()} disabled={reading || saving}><Image size={16} aria-hidden="true" />Use sample photo</button></div></div>
+      <div className="sample-menu-choice"><SampleMenuPreview /><div><strong>Want to try OCR first?</strong><button className="button button-secondary" type="button" onClick={() => void useSamplePhoto()} disabled={reading || saving}><Image size={16} aria-hidden="true" />Use sample photo</button></div></div>
       <p className="menu-privacy-note">The photo is sent to Google Cloud for menu reading and is not stored by Yatalk.</p>
       <div className="menu-manual-row">
         <span>Or add menu items manually</span>

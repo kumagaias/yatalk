@@ -130,6 +130,31 @@ test("shop owners can manage only their own orders, inventory, and summaries", a
   });
 });
 
+test("a shop owner sees only its pending counter QR payments", async () => {
+  const paypal = new FakePayPal();
+  paypal.approveUrl = "https://www.sandbox.paypal.com/checkoutnow?token=test";
+  await withServer(paypal, async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const first = await createOwner(url, `counter-a-${suffix}`, `counter-a-${suffix}@example.test`);
+    const second = await createOwner(url, `counter-b-${suffix}`, `counter-b-${suffix}@example.test`);
+    const item = await addMenuItem(url, first.shop.slug, first.cookie, "Counter tea");
+    const customer = await visitor(url, first.shop.slug);
+    const added = await json(`${url}/api/v1/shops/${first.shop.slug}/cart/items`, { method: "POST", headers: postHeaders(customer.cookie),
+      body: JSON.stringify({ action: "add", productId: item.id, quantity: 1, cartVersion: customer.cart.cartVersion, catalogRevision: customer.cart.catalogRevision }) });
+    const created = await json(`${url}/api/v1/shops/${first.shop.slug}/orders`, { method: "POST", headers: postHeaders(customer.cookie),
+      body: JSON.stringify({ cartVersion: added.body.cartVersion, catalogRevision: added.body.catalogRevision, clientRequestKey: "00000000-0000-4000-8000-000000000098" }) });
+
+    const unauthenticated = await json(`${url}/api/v1/dashboard/shops/${first.shop.slug}/counter-orders`);
+    assert.equal(unauthenticated.response.status, 401);
+    const queue = await json(`${url}/api/v1/dashboard/shops/${first.shop.slug}/counter-orders`, { headers: { cookie: first.cookie } });
+    assert.deepEqual(queue.body.orders, [{ orderId: created.body.orderId, totalMinor: item.priceMinor, currency: "JPY",
+      createdAt: queue.body.orders[0].createdAt, expiresAt: queue.body.orders[0].expiresAt,
+      approveUrl: paypal.approveUrl, items: [{ name: "Counter tea", quantity: 1 }] }]);
+    const otherQueue = await json(`${url}/api/v1/dashboard/shops/${second.shop.slug}/counter-orders`, { headers: { cookie: second.cookie } });
+    assert.deepEqual(otherQueue.body.orders, []);
+  });
+});
+
 test("menu assistant requires shop ownership and returns editable drafts without publishing them", async () => {
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);
@@ -217,23 +242,23 @@ test("shop menu photo extraction requires the owner, checks image content, and s
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);
     const owner = await createOwner(url, `shop-menu-${suffix}`, `menu-${suffix}@example.test`);
-    const image = readFileSync(new URL("../../public/menu-ocr-sample.png", import.meta.url));
+    const image = readFileSync(new URL("../../public/menu-ocr-sample.webp", import.meta.url));
     const scanUrl = `${url}/api/v1/dashboard/shops/${owner.shop.slug}/menu/scan`;
 
-    const unauthenticated = await fetch(scanUrl, { method: "POST", headers: { origin, "content-type": "image/png" }, body: image });
+    const unauthenticated = await fetch(scanUrl, { method: "POST", headers: { origin, "content-type": "image/webp" }, body: image });
     assert.equal(unauthenticated.status, 401);
-    const wrongOrigin = await fetch(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin: "https://attacker.example", "content-type": "image/png" }, body: image });
+    const wrongOrigin = await fetch(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin: "https://attacker.example", "content-type": "image/webp" }, body: image });
     assert.equal(wrongOrigin.status, 403);
     const mismatched = await fetch(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/jpeg" }, body: image });
     assert.equal(mismatched.status, 415);
 
-    const scanned = await json(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/png" }, body: image });
+    const scanned = await json(scanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/webp" }, body: image });
     assert.equal(scanned.response.status, 200);
     assert.deepEqual(scanned.body.items.map((item: { name: string; priceMinor: number }) => [item.name, item.priceMinor]), [
       ["Grilled Onigiri", 400], ["Iced Tea", 300], ["Mikan Jelly", 500],
     ]);
     const nestedScanUrl = `${url}/api/v1/dashboard/${owner.ownerSlug}/${owner.shop.slug}/menu/scan`;
-    const nestedScanned = await json(nestedScanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/png" }, body: image });
+    const nestedScanned = await json(nestedScanUrl, { method: "POST", headers: { cookie: owner.cookie, origin, "content-type": "image/webp" }, body: image });
     assert.equal(nestedScanned.response.status, 200);
     assert.equal(nestedScanned.body.items.length, 3);
     const emptyMenu = await json(`${url}/api/v1/shops/${owner.shop.slug}/menu`);

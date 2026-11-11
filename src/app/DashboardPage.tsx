@@ -11,6 +11,10 @@ import { ShopQRCodeCard } from "../components/ShopQRCodeCard";
 import { Alert, Loading } from "../components/Feedback";
 import { OwnerAssistantPanel } from "../components/OwnerAssistantPanel";
 import { ShopImageCard } from "../components/ShopImageCard";
+import { AgAnalyticsDashboard } from "../components/AgAnalyticsDashboard";
+import { CounterPaymentQueue } from "../components/CounterPaymentQueue";
+import { useScreenWakeLock } from "../lib/use-screen-wake-lock";
+import { dashboardApiBase } from "../lib/dashboard-api";
 import type { MenuExtraction } from "../../shared/schemas.js";
 import { parseAmountToMinor } from "../../shared/currency.js";
 
@@ -35,10 +39,12 @@ export function DashboardPage() {
   const [signingOut, setSigningOut] = useState(false);
   const navigate = useNavigate();
   const { ownerSlug, shopSlug } = useParams();
+  const managementApiBase = dashboardApiBase(ownerSlug, shopSlug);
   const publicOwnerSlug = summary?.shop?.ownerSlug ?? ownerSlug;
   const shopUrl = shopSlug ? publicOwnerSlug ? `/${encodeURIComponent(publicOwnerSlug)}/${encodeURIComponent(shopSlug)}` : `/shops/${encodeURIComponent(shopSlug)}` : "/shops/little-harbor-market";
   const shopName = summary?.shop?.name ?? "Little Harbor Market";
   const currency = summary?.shop?.currency ?? "JPY";
+  useScreenWakeLock(true);
 
   const clearAssistantSuggestions = useCallback(() => {
     setAssistantSuggestions(null);
@@ -60,7 +66,7 @@ export function DashboardPage() {
     setLoading(true);
     setLoadError("");
     try {
-      const data = await get<OrganizerSummary>("/api/organizer/summary");
+      const data = await get<OrganizerSummary>(`${managementApiBase}/summary`);
       setSummary(data);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -71,9 +77,26 @@ export function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [navigate, shopSlug]);
+  }, [managementApiBase, navigate, shopSlug]);
 
   useEffect(() => { void loadSummary(); }, [loadSummary]);
+
+  useEffect(() => {
+    const refreshLiveOrders = () => {
+      if (document.visibilityState !== "visible") return;
+      void get<OrganizerSummary>(`${managementApiBase}/summary`).then((data) => setSummary((current) => current
+        ? { ...current, metrics: data.metrics, orders: data.orders, shop: data.shop }
+        : data)).catch((error) => {
+          if (error instanceof ApiError && error.status === 401) navigate(shopSlug ? "/dashboard/login" : "/organizer", { replace: true });
+        });
+    };
+    const timer = window.setInterval(refreshLiveOrders, 5_000);
+    document.addEventListener("visibilitychange", refreshLiveOrders);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshLiveOrders);
+    };
+  }, [managementApiBase, navigate, shopSlug]);
 
   const logout = async () => {
     setSigningOut(true);
@@ -94,7 +117,7 @@ export function DashboardPage() {
     setProductFeedback((value) => ({ ...value, [product.id]: "" }));
     try {
       if (priceMinor === null) throw new Error(`Enter a valid ${product.currency} amount.`);
-      await patch(`/api/organizer/products/${encodeURIComponent(product.id)}`, { stockOnHand, priceMinor });
+      await patch(`${managementApiBase}/products/${encodeURIComponent(product.id)}`, { stockOnHand, priceMinor });
       setProductFeedback((value) => ({ ...value, [product.id]: "Saved" }));
       await loadSummary();
     } catch (error) {
@@ -108,14 +131,14 @@ export function DashboardPage() {
     setSaving(productId);
     setProductFeedback((value) => ({ ...value, [productId]: "" }));
     try {
-      const result = await post<{ product: OrganizerProduct; applied: boolean }>(`/api/organizer/products/${encodeURIComponent(productId)}/receive`, { quantity, receiptId });
+      const result = await post<{ product: OrganizerProduct; applied: boolean }>(`${managementApiBase}/products/${encodeURIComponent(productId)}/receive`, { quantity, receiptId });
       setSummary((current) => current ? { ...current, products: current.products.map((item) => item.id === productId ? result.product : item) } : current);
       setProductFeedback((value) => ({ ...value, [productId]: result.applied ? `Saved · received ${quantity} units` : "Saved · receipt was already applied" }));
       return "received";
     } catch (error) {
       const uncertain = !(error instanceof ApiError) || error.status === 0 || error.status >= 500;
       if (uncertain) {
-        try { setSummary(await get<OrganizerSummary>("/api/organizer/summary")); } catch { /* Keep the current summary when the status check also fails. */ }
+        try { setSummary(await get<OrganizerSummary>(`${managementApiBase}/summary`)); } catch { /* Keep the current summary when the status check also fails. */ }
         setProductFeedback((value) => ({ ...value, [productId]: "Could not confirm the receipt. Check current stock before retrying." }));
         return "unknown";
       }
@@ -128,7 +151,7 @@ export function DashboardPage() {
     setSaving(order.orderId);
     setActionFeedback((value) => ({ ...value, [order.orderId]: "" }));
     try {
-      await post(`/api/organizer/orders/${encodeURIComponent(order.orderId)}/collect`);
+      await post(`${managementApiBase}/orders/${encodeURIComponent(order.orderId)}/collect`);
       await loadSummary();
     } catch (error) {
       setActionFeedback((value) => ({ ...value, [order.orderId]: error instanceof Error ? error.message : "Could not mark this order collected." }));
@@ -141,7 +164,7 @@ export function DashboardPage() {
     if (typeof refundRestock[order.orderId] === "boolean") return;
     setRefundDetailLoading((value) => ({ ...value, [order.orderId]: true }));
     try {
-      const detail = await get<Order>(`/api/organizer/orders/${encodeURIComponent(order.orderId)}`);
+      const detail = await get<Order>(`${managementApiBase}/orders/${encodeURIComponent(order.orderId)}`);
       if (typeof detail.refundRestockRequested === "boolean") {
         setRefundRestock((value) => ({ ...value, [order.orderId]: detail.refundRestockRequested! }));
       } else if (order.state === "refund_unknown") {
@@ -160,7 +183,7 @@ export function DashboardPage() {
     setSaving(order.orderId);
     setActionFeedback((value) => ({ ...value, [order.orderId]: "" }));
     try {
-      const result = await post<{ state: string; restocked?: boolean }>(`/api/organizer/orders/${encodeURIComponent(order.orderId)}/refund`, { restock });
+      const result = await post<{ state: string; restocked?: boolean }>(`${managementApiBase}/orders/${encodeURIComponent(order.orderId)}/refund`, { restock });
       if (result.state === "refund_unknown") {
         setRefundUnknown((value) => ({ ...value, [order.orderId]: true }));
         setActionFeedback((value) => ({ ...value, [order.orderId]: "Refund checking. The order remains captured until PayPal confirms the result. Retry with the same stock choice." }));
@@ -185,16 +208,23 @@ export function DashboardPage() {
       <main className="dashboard-main">
         <div className="dashboard-top">
           <div><p className="eyebrow">{shopName} · Tokyo</p><h1 className="page-title">Organizer desk</h1><p className="dashboard-subtitle">A clear view of today’s orders, stock, and service.</p></div>
-          <div className="dashboard-actions"><Link className="text-button" to={shopUrl}><ArrowLeft size={15} aria-hidden="true" />Back to market</Link>{shopSlug && <Link className="text-button" to="/dashboard/shops">All shops</Link>}<button className="text-button" type="button" onClick={() => void loadSummary()} disabled={loading}><RefreshCw size={15} aria-hidden="true" />Refresh</button><button className="text-button" type="button" onClick={() => void logout()} disabled={signingOut}><LogOut size={15} aria-hidden="true" />{signingOut ? "Ending…" : "Sign out"}</button></div>
+          <div className="dashboard-actions"><Link className="text-button" to={shopUrl}><ArrowLeft size={15} aria-hidden="true" />Back to market</Link><Link className="text-button" to={`${shopUrl}?counter=1`}>Counter screen</Link>{shopSlug && <Link className="text-button" to="/dashboard/shops">All shops</Link>}<button className="text-button" type="button" onClick={() => void loadSummary()} disabled={loading}><RefreshCw size={15} aria-hidden="true" />Refresh</button><button className="text-button" type="button" onClick={() => void logout()} disabled={signingOut}><LogOut size={15} aria-hidden="true" />{signingOut ? "Ending…" : "Sign out"}</button></div>
         </div>
         {loading && !summary && <Loading>Opening the organizer desk…</Loading>}
         {loadError && <Alert onRetry={() => void loadSummary()}>{loadError}</Alert>}
         {summary && <>
+          <CounterPaymentQueue apiBase={managementApiBase} />
           <section className="metric-grid" aria-label="Today at a glance">
             <article className="metric-card"><span className="metric-label">Gross captured today</span><strong>{money(summary.metrics.grossSalesMinor, currency)}</strong><span className="metric-footnote">Before completed refunds</span></article>
             <article className="metric-card"><span className="metric-label">Net captured sales</span><strong>{money(summary.metrics.netSalesMinor, currency)}</strong><span className="metric-footnote">After completed refunds</span></article>
             <article className="metric-card"><span className="metric-label">Paid orders · low stock</span><strong>{summary.metrics.paidOrderCount} <span aria-hidden="true">·</span> {summary.metrics.lowStockCount}</strong><span className="metric-footnote">Includes collected orders</span></article>
           </section>
+          {publicOwnerSlug && summary.shop?.ownerSlug && shopSlug && <AgAnalyticsDashboard
+            key={`${publicOwnerSlug}/${summary.shop.slug}`}
+            shopKey={`${publicOwnerSlug}/${summary.shop.slug}`}
+            shopName={shopName}
+            apiBase={managementApiBase}
+          />}
           <div className="dashboard-grid">
             <div className="dashboard-column">
               <section className="dashboard-card" aria-labelledby="orders-heading">
@@ -222,7 +252,7 @@ export function DashboardPage() {
               {publicOwnerSlug && summary.shop?.slug && <ShopImageCard key={summary.shop.slug} ownerSlug={publicOwnerSlug} shopSlug={summary.shop.slug} shopName={shopName} enabled={!!summary.shopImageEnabled} />}
               <ShopQRCodeCard shopSlug={summary.shop?.slug ?? shopSlug ?? "little-harbor-market"} ownerSlug={publicOwnerSlug} />
               <OwnerAssistantPanel currency={currency} draft={menuDraftContext} onAddToMenu={addAssistantSuggestions} onReceiveStock={receiveStock} />
-              <section className="dashboard-card service-note"><div className="section-heading"><div><p className="eyebrow">Pickup reminder</p><h2>Keep the line moving</h2></div><CircleHelp size={20} aria-hidden="true" /></div><p>Confirm the pickup code with the guest before marking an order collected. Only paid, uncollected orders can be refunded.</p><Link to={shopUrl} className="text-button">Preview the market <ArrowUpRight size={14} aria-hidden="true" /></Link></section>
+              <section className="dashboard-card service-note"><div className="section-heading"><div><p className="eyebrow">Pickup reminder</p><h2>Keep the line moving</h2></div><CircleHelp size={20} aria-hidden="true" /></div><p>Confirm the pickup number with the guest before marking an order collected. Only paid, uncollected orders can be refunded.</p><Link to={shopUrl} className="text-button">Preview the market <ArrowUpRight size={14} aria-hidden="true" /></Link></section>
             </div>
           </div>
         </>}

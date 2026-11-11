@@ -1,8 +1,10 @@
-import { ArrowUp, MessageCircle, Mic, MicOff, Sparkles } from "lucide-react";
+import { ArrowUp, MessageCircle, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Cart, Product } from "../types";
+import type { Cart } from "../types";
 import { postAudio } from "../lib/api";
+import { speakText, speechOutputAvailable, stopSpeech } from "../lib/speech-output";
 import { Alert } from "./Feedback";
+import { VoiceConversationButton } from "./VoiceConversationButton";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type ChatResponse = { reply: string; clarification: string | null; cart: Cart };
@@ -10,14 +12,16 @@ type Props = {
   cart: Cart | null;
   mutationBusy: boolean;
   onSend: (message: string, history: ChatMessage[]) => Promise<ChatResponse>;
-  products: Product[];
+  voiceConversation?: boolean;
+  onFinishOrder?: () => void;
 };
 const MAX_AUDIO_BYTES = 256 * 1024;
 const RECORDING_LIMIT_MS = 19_800;
 
-export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
+export function ChatPanel({ cart, mutationBusy, onSend, voiceConversation = false, onFinishOrder }: Props) {
+  const speechLanguage = document.documentElement.lang.toLowerCase().startsWith("ja") ? "ja-JP" : "en-US";
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", content: "Welcome to the stall. Tell me what sounds good, and I’ll help build your order." },
+    { role: "assistant", content: speechLanguage === "ja-JP" ? "いらっしゃいませ。ご注文をどうぞ。" : "Welcome! What would you like today?" },
   ]);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,6 +31,9 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
   const [transcribing, setTranscribing] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
   const [voiceError, setVoiceError] = useState("");
+  const [speakReplies, setSpeakReplies] = useState(false);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -35,6 +42,25 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
   const voiceIdRef = useRef("");
   const sendLockRef = useRef(false);
   const mountedRef = useRef(false);
+
+  useEffect(() => () => stopSpeech(), []);
+
+  const speakMessage = async (text: string, index: number) => {
+    if (speakingIndex === index) {
+      stopSpeech();
+      setSpeakingIndex(null);
+      return;
+    }
+    if (!speechOutputAvailable()) {
+      setVoiceError("Speech playback is not available on this device. The reply remains visible as text.");
+      return;
+    }
+    setSpeakingIndex(index);
+    setVoiceError("");
+    try { await speakText(text, speechLanguage); }
+    catch { setVoiceError("Speech playback is not available on this device. The reply remains visible as text."); }
+    finally { setSpeakingIndex(null); }
+  };
 
   const logVoice = (stage: string, outcome: "start" | "success" | "failure", reason?: unknown) => {
     const errorName = reason instanceof Error ? reason.name : undefined;
@@ -181,8 +207,8 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
     }
   };
 
-  const send = async (text: string) => {
-    if (!cart || !text.trim() || busy || mutationBusy || recording || transcribing || sendLockRef.current) return;
+  const send = async (text: string, voiceTurn = false): Promise<string | null> => {
+    if (!cart || !text.trim() || busy || mutationBusy || recording || transcribing || sendLockRef.current) return null;
     sendLockRef.current = true;
     const userMessage = text.trim();
     const prior = messages.slice(-8).map(({ role, content }) => ({ role, content }));
@@ -195,14 +221,18 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
     try {
       const result = await onSend(userMessage, prior);
       const answer = result.clarification ? `${result.reply} ${result.clarification}` : result.reply;
+      const answerIndex = messages.length + 1;
       setMessages((current) => [...current, { role: "assistant", content: answer }]);
+      if (speakReplies && !voiceTurn) void speakMessage(answer, answerIndex);
       requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+      return answer;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Chat is taking a break. Check your order summary before retrying.";
       setMessages((current) => current.at(-1)?.role === "user" ? current.slice(0, -1) : current);
       setError(message);
       setLastFailed(userMessage);
       setValue(userMessage);
+      return null;
     } finally {
       sendLockRef.current = false;
       setBusy(false);
@@ -218,26 +248,48 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
     <section className="panel chat-panel" aria-labelledby="chat-heading">
       <div className="panel-heading">
         <div className="heading-icon chat-icon"><MessageCircle size={18} aria-hidden="true" /></div>
-        <div><p className="eyebrow">A friendly helper</p><h2 id="chat-heading">Order by voice or chat</h2></div>
-        <span className="ai-badge"><Sparkles size={14} aria-hidden="true" />AI</span>
+        <div><p className="eyebrow">Talk to the stall</p><h2 id="chat-heading">Order by voice</h2></div>
+        <div className="chat-heading-actions">
+          <button className={`speech-toggle${speakReplies ? " active" : ""}`} type="button" aria-pressed={speakReplies}
+            aria-label={speakReplies ? "Turn off spoken replies" : "Turn on spoken replies"}
+            onClick={() => {
+              if (!speechOutputAvailable()) { setVoiceError("Speech playback is not available on this device."); return; }
+              if (speakReplies) { stopSpeech(); setSpeakingIndex(null); }
+              setSpeakReplies((enabled) => !enabled);
+            }}>
+            {speakReplies ? <VolumeX size={16} aria-hidden="true" /> : <Volume2 size={16} aria-hidden="true" />}
+          </button>
+        </div>
       </div>
-      <div className="chat-thread" aria-live="polite" aria-label="Order conversation">
+      <div className="chat-thread" aria-live={speakReplies || voiceConversation ? "off" : "polite"} aria-label="Order conversation">
         {messages.map((message, index) => (
           <div className={`chat-message ${message.role}`} key={`${index}-${message.role}`}>
             {message.role === "assistant" && <span className="chat-avatar" aria-hidden="true">y</span>}
             <p>{message.content}</p>
+            {message.role === "assistant" && <button className="chat-speak-button" type="button"
+              aria-label={speakingIndex === index ? "Stop reading reply" : "Read reply aloud"}
+              onClick={() => void speakMessage(message.content, index)}>
+              {speakingIndex === index ? <VolumeX size={16} aria-hidden="true" /> : <Volume2 size={16} aria-hidden="true" />}
+            </button>}
           </div>
         ))}
         {busy && <p className="typing-indicator" role="status"><span /><span /><span />Thinking through the menu…</p>}
         <div ref={bottomRef} />
       </div>
-      {products.length > 0 && !messages.some((message) => message.role === "user") && (
-        <div className="suggestions"><span>Try:</span><button type="button" onClick={() => void send("Two yakisoba and one iced tea")} disabled={mutationBusy || busy}>“Two yakisoba and one iced tea”</button></div>
-      )}
+      {voiceConversation && cart && <VoiceConversationButton
+        onVoiceTurn={(transcript) => send(transcript, true)}
+        onFinishOrder={() => Boolean(onFinishOrder?.())}
+        onUnsupported={() => setManualEntryOpen(true)}
+        speechLanguage={speechLanguage}
+        disabled={busy || mutationBusy}
+      />}
+      {voiceConversation && <button className="text-button manual-entry-toggle" type="button" onClick={() => setManualEntryOpen((open) => !open)}>
+        {manualEntryOpen ? "Hide text order" : "Type an order instead"}
+      </button>}
       {error && <Alert onRetry={() => void send(lastFailed)} retryDisabled={mutationBusy || busy || transcribing || recording}>{error}</Alert>}
       {voiceStatus && <p className="voice-status" role="status">{voiceStatus}</p>}
       {voiceError && <p className="voice-error" role="alert">{voiceError}</p>}
-      <form className="chat-composer" onSubmit={submit}>
+      {(!voiceConversation || manualEntryOpen) && <form className="chat-composer" onSubmit={submit}>
         <label className="sr-only" htmlFor="chat-input">Describe what you’d like</label>
         <textarea id="chat-input" rows={2} maxLength={800} value={value} onChange={(event) => setValue(event.target.value)} placeholder="What are you in the mood for?" disabled={mutationBusy || busy || transcribing || !cart} />
         <button className={`voice-button${recording ? " recording" : ""}`} type="button" onClick={() => void toggleRecording()}
@@ -245,8 +297,8 @@ export function ChatPanel({ cart, mutationBusy, onSend, products }: Props) {
           {recording ? <MicOff size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
         </button>
         <button className="send-button" type="submit" aria-label="Send message" disabled={!value.trim() || mutationBusy || busy || transcribing || recording || !cart}><ArrowUp size={20} aria-hidden="true" /></button>
-      </form>
-  <p className="chat-note">Audio is sent to Google Cloud for transcription. Yatalk does not store recordings. Review the text before sending.</p>
+      </form>}
+      <p className="chat-note">{voiceConversation ? "Voice recognition uses your browser. Typed and recognized text is sent to Yatalk to build your order." : "Audio is sent to Google Cloud for transcription. Yatalk does not store recordings. Review the text before sending."}</p>
     </section>
   );
 }

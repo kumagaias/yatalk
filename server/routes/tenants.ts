@@ -59,7 +59,7 @@ export function tenantRoutes(db: Db, config: AppConfig, emailSender: EmailSender
   const ownerOnly = requireOwner(db);
   const signupPerIp = createRateLimit(10, 60 * 60_000, ipKey);
   const slugCheckPerIp = createRateLimit(60, 60_000, ipKey);
-  const loginPerIp = createRateLimit(5, 15 * 60_000, ipKey);
+  const loginPerIp = createRateLimit(10, 15 * 60_000, ipKey);
   const loginPerEmail = createRateLimit(10, 15 * 60_000, (request) => {
     const email = request.body && typeof request.body === "object" ? (request.body as Record<string, unknown>).email : "";
     return typeof email === "string" ? email.trim().toLowerCase().slice(0, 254) : "missing";
@@ -205,8 +205,9 @@ export function tenantRoutes(db: Db, config: AppConfig, emailSender: EmailSender
     if (userId) {
       try {
         const token = await issueAccountToken(db, userId, "password_reset");
-        await sendAccountEmail({ to: email, subject: "Reset your Yatalk password",
+        const sent = await sendAccountEmail({ to: email, subject: "Reset your Yatalk password",
           text: `Use this link within 30 minutes to reset your Yatalk owner password: ${tokenLink("/password-reset", token)}\n\nIf you did not request this, you can ignore this message.` });
+        if (!sent) logStage(request.requestId, "password_reset_email", "failure");
       } catch (error) { logStage(request.requestId, "password_reset_email", "failure", error); }
     }
     response.status(202).json({ message: "If an account uses that email, a password reset link will arrive shortly." });

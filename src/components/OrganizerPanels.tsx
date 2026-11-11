@@ -35,7 +35,7 @@ export function OrderCard({
         <span className={`status-pill status-${displayedState}`}>{displayedState.replaceAll("_", " ")}</span>
       </div>
       {itemSummary && <p className="order-items">{itemSummary}</p>}
-      {order.state === "paid" && order.pickupCode && <p className="order-pickup"><span>Pickup code</span><strong>{order.pickupCode}</strong></p>}
+      {order.state === "paid" && order.pickupCode && <p className="order-pickup"><span>Pickup number</span><strong>{order.pickupCode}</strong></p>}
       <div className="order-controls">
         {order.state === "paid" && <>
           <button className="button button-secondary" type="button" onClick={onCollect} disabled={saving}><PackageCheck size={16} aria-hidden="true" />{saving ? "Saving…" : "Mark collected"}</button>

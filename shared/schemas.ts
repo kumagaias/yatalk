@@ -27,6 +27,7 @@ export const chatModelOutputSchema = z.object({
 
 export const chatRequestSchema = z.object({
   message: z.string().trim().min(1).max(800),
+  replyLanguage: z.enum(["en", "ja"]).default("en"),
   history: z.array(z.object({
     role: z.enum(["user", "assistant"]),
     content: z.string().max(800),
@@ -157,6 +158,10 @@ export const passwordResetRequestSchema = z.object({
 export const passwordResetCompleteSchema = z.object({
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   password: z.string().min(12).max(128),
+}).strict();
+
+export const paymentReturnCaptureSchema = z.object({
+  paypalOrderId: z.string().regex(/^[A-Z0-9]{1,36}$/),
 }).strict();
 
 export const emailVerificationTokenSchema = z.object({

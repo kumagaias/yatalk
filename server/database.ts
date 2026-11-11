@@ -140,9 +140,12 @@ CREATE TABLE IF NOT EXISTS orders (
   paypal_capture_request_id TEXT NOT NULL,
   paypal_refund_request_id TEXT NOT NULL,
   paypal_order_id TEXT UNIQUE,
+  paypal_approve_url TEXT,
   paypal_capture_id TEXT UNIQUE,
   paypal_refund_id TEXT UNIQUE,
   pickup_code TEXT UNIQUE,
+  pickup_number TEXT,
+  pickup_date TEXT,
   expires_at TEXT NOT NULL,
   refund_restock_requested INTEGER CHECK(refund_restock_requested IN (0, 1)),
   restock_applied_at TEXT,
@@ -230,12 +233,17 @@ function ensureLegacyTenantColumns(db: Db): void {
   ensureColumn(db, "users", "owner_slug", "TEXT");
   ensureColumn(db, "users", "default_currency", "TEXT NOT NULL DEFAULT 'JPY'");
   ensureColumn(db, "users", "email_verified", "INTEGER NOT NULL DEFAULT 1 CHECK(email_verified IN (0, 1))");
+  ensureColumn(db, "orders", "pickup_number", "TEXT");
+  ensureColumn(db, "orders", "pickup_date", "TEXT");
+  ensureColumn(db, "orders", "paypal_approve_url", "TEXT");
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_id_id ON products(shop_id, id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_visitor_sessions_shop_hash ON visitor_sessions(shop_id, session_hash);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_id_id ON orders(shop_id, id);
     CREATE INDEX IF NOT EXISTS idx_products_shop_active ON products(shop_id, active, name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_owner_slug ON users(owner_slug) WHERE owner_slug IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS idx_shops_owner_slug ON shops(owner_user_id, slug);`);
+    CREATE INDEX IF NOT EXISTS idx_shops_owner_slug ON shops(owner_user_id, slug);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_pickup_number ON orders(shop_id, pickup_date, pickup_number)
+      WHERE pickup_date IS NOT NULL AND pickup_number IS NOT NULL;`);
 }
 
 function backfillOwnerSlugs(db: Db): void {
@@ -311,7 +319,8 @@ function migrateCurrencyConstraints(db: Db): void {
         state TEXT NOT NULL CHECK(state IN ('creating_payment', 'create_unknown', 'create_failed', 'pending_payment', 'capture_unknown', 'paid', 'cancelled', 'expired', 'collected', 'refund_unknown', 'refunded')),
         currency TEXT NOT NULL CHECK(currency IN (${allowed})), total_minor INTEGER NOT NULL CHECK(total_minor > 0),
         paypal_create_request_id TEXT NOT NULL, paypal_capture_request_id TEXT NOT NULL, paypal_refund_request_id TEXT NOT NULL,
-        paypal_order_id TEXT UNIQUE, paypal_capture_id TEXT UNIQUE, paypal_refund_id TEXT UNIQUE, pickup_code TEXT UNIQUE,
+        paypal_order_id TEXT UNIQUE, paypal_approve_url TEXT, paypal_capture_id TEXT UNIQUE, paypal_refund_id TEXT UNIQUE, pickup_code TEXT UNIQUE,
+        pickup_number TEXT, pickup_date TEXT,
         expires_at TEXT NOT NULL, refund_restock_requested INTEGER CHECK(refund_restock_requested IN (0, 1)), restock_applied_at TEXT,
         create_attempt_started_at TEXT, captured_at TEXT, refunded_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         UNIQUE(session_hash, client_request_key), UNIQUE(shop_id, id),
@@ -319,17 +328,19 @@ function migrateCurrencyConstraints(db: Db): void {
       );
       INSERT INTO orders__currency(id, shop_id, session_hash, client_request_key, request_fingerprint, cart_version, catalog_revision,
         state, currency, total_minor, paypal_create_request_id, paypal_capture_request_id, paypal_refund_request_id,
-        paypal_order_id, paypal_capture_id, paypal_refund_id, pickup_code, expires_at, refund_restock_requested,
+        paypal_order_id, paypal_approve_url, paypal_capture_id, paypal_refund_id, pickup_code, pickup_number, pickup_date, expires_at, refund_restock_requested,
         restock_applied_at, create_attempt_started_at, captured_at, refunded_at, created_at, updated_at)
         SELECT id, shop_id, session_hash, client_request_key, request_fingerprint, cart_version, catalog_revision,
           state, currency, total_minor, paypal_create_request_id, paypal_capture_request_id, paypal_refund_request_id,
-          paypal_order_id, paypal_capture_id, paypal_refund_id, pickup_code, expires_at, refund_restock_requested,
+          paypal_order_id, paypal_approve_url, paypal_capture_id, paypal_refund_id, pickup_code, pickup_number, pickup_date, expires_at, refund_restock_requested,
           restock_applied_at, create_attempt_started_at, captured_at, refunded_at, created_at, updated_at FROM orders;
       DROP TABLE orders;
       ALTER TABLE orders__currency RENAME TO orders;
       CREATE INDEX idx_products_shop_active ON products(shop_id, active, name);
       CREATE INDEX idx_orders_session_created ON orders(session_hash, created_at DESC);
       CREATE INDEX idx_orders_state_expiry ON orders(state, expires_at);
+      CREATE UNIQUE INDEX idx_orders_pickup_number ON orders(shop_id, pickup_date, pickup_number)
+        WHERE pickup_date IS NOT NULL AND pickup_number IS NOT NULL;
     `);
     db.exec("COMMIT");
   } catch (error) {

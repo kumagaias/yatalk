@@ -56,7 +56,7 @@ The app seeds fictional Little Harbor Market products on first run. Newly create
 
 ## Webhooks
 
-For signature-verified webhook testing, configure a public HTTPS endpoint ending in `/api/webhooks/paypal` and subscribe to `PAYMENT.CAPTURE.COMPLETED` and `PAYMENT.CAPTURE.REFUNDED`. Use a real Sandbox capture/refund to verify the signed success path. PayPal Webhook Simulator events are useful for rejection and parsing tests but do not pass PayPal postback signature verification.
+For signature-verified webhook testing, configure a public HTTPS endpoint ending in `/api/webhooks/paypal` and subscribe to `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, and `PAYMENT.CAPTURE.REFUNDED`. The approved event lets the server capture payment if the buyer closes PayPal before returning to Yatalk. Use a real Sandbox capture/refund to verify the signed success path. PayPal Webhook Simulator events are useful for rejection and parsing tests but do not pass PayPal postback signature verification.
 
 ## Commands
 

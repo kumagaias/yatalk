@@ -47,6 +47,10 @@ function isLargeBodyRoute(pathname: string): boolean {
   return largeBodyRoutes.some((pattern) => pattern.test(pathname));
 }
 
+function isAgStudioTurnRoute(pathname: string): boolean {
+  return /^\/api\/v1\/dashboard\/(?:shops\/[^/]+|[^/]+\/[^/]+)\/studio\/turn$/.test(pathname);
+}
+
 export function createApp(options: CreateAppOptions): express.Express {
   const { config } = options;
   const db = options.db ?? createDatabase(config.databasePath);
@@ -78,7 +82,9 @@ export function createApp(options: CreateAppOptions): express.Express {
   }));
   app.use("/api/webhooks", webhookRoutes(db, config, paypal));
   app.use("/api/v1/webhooks", webhookRoutes(db, config, paypal));
-  app.use(express.json({ limit: "32kb", type: "application/json", strict: true }));
+  app.use((request, response, next) => {
+    express.json({ limit: isAgStudioTurnRoute(request.path) ? "256kb" : "32kb", type: "application/json", strict: true })(request, response, next);
+  });
   app.use((request, response, next) => {
     if (isLargeBodyRoute(request.path)) { next(); return; }
     express.raw({ type: () => true, limit: "32kb" })(request, response, next);
@@ -92,10 +98,10 @@ export function createApp(options: CreateAppOptions): express.Express {
   // Keep the legacy /dashboard/shops/:shopSlug alias ahead of the two-segment
   // owner route so "shops" is not interpreted as an owner slug.
   v1.use("/dashboard/shops/:shopSlug", requireShopSlug(db, true), requireOwner(db), requireShopMember(db),
-    managementOperations(db, config, paypal, ai, (request) => request.shop!.id, (request) => request.ownerUserId ?? null));
+    managementOperations(db, config, paypal, ai, (request) => request.shop!.id, (request) => request.ownerUserId ?? null, true));
   v1.use("/owners/:ownerSlug/shops/:shopSlug", requireOwnerShopSlug(db), publicRoutes(db, config, ai), voiceRoutes(db, config, ai), orderRoutes(db, config, paypal));
   v1.use("/dashboard/:ownerSlug/:shopSlug", requireOwnerShopSlug(db, true), requireOwner(db), requireShopMember(db),
-    managementOperations(db, config, paypal, ai, (request) => request.shop!.id, (request) => request.ownerUserId ?? null));
+    managementOperations(db, config, paypal, ai, (request) => request.shop!.id, (request) => request.ownerUserId ?? null, true));
   v1.use("/shops/:shopSlug", requireShopSlug(db), publicRoutes(db, config, ai), voiceRoutes(db, config, ai), orderRoutes(db, config, paypal));
   app.use("/api/v1", v1);
 

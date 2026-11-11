@@ -9,7 +9,7 @@ type ShopDoc = FirestoreDocument & { currency: string };
 type LineDoc = FirestoreDocument & { product_id: string; display_name: string; quantity: number };
 type OrderDoc = FirestoreDocument & {
   id: string; shopId: string; state: OrderRow["state"]; totalMinor: number; capturedAt: string | null;
-  createdAt: string; expiresAt: string; pickupCode: string | null; currency: string; items: LineDoc[];
+  createdAt: string; expiresAt: string; pickupCode: string | null; pickupNumber?: string | null; currency: string; items: LineDoc[];
 };
 
 function wallClockParts(date: Date, timeZone: string): { year: number; month: number; day: number } {
@@ -73,7 +73,7 @@ export async function organizerSummary(db: FirestoreDb, timeZone: string, shopId
   ]);
   const orders = rows.map((order) => ({
     orderId: order.id, state: order.state, totalMinor: order.totalMinor, currency: order.currency,
-    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickupCode } : {}),
+    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickupNumber ?? order.pickupCode } : {}),
     createdAt: order.createdAt, items: (order.items ?? []).map((item) => ({ name: item.display_name, quantity: item.quantity })),
   }));
   return {

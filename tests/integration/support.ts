@@ -48,6 +48,7 @@ export class FakePayPal implements PayPalProvider {
   getOrderGate: Promise<void> | null = null;
   onGetOrder: (() => void) | null = null;
   orderStatusOverride: string | null = null;
+  approveUrl: string | null = null;
 
   private orderReferences(localOrderId: string) {
     return this.omitOrderReferences
@@ -60,7 +61,7 @@ export class FakePayPal implements PayPalProvider {
     if (this.failFirstCreate && this.createCalls.length === 1) throw new ProviderError("paypal", "mutation", false);
     const id = `PAYPAL-${input.localOrderId}`;
     this.orders.set(id, { localOrderId: input.localOrderId, total: input.totalMinor, currency: input.currency, completed: false });
-    return { id, status: "CREATED", approveUrl: null };
+    return { id, status: "CREATED", approveUrl: this.approveUrl };
   }
   async getOrder(orderId: string): Promise<PayPalCaptureResult> {
     this.getOrderCalls += 1;

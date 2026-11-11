@@ -418,6 +418,7 @@ resource "google_cloud_run_v2_service" "preview" {
     google_project_iam_member.runtime_firestore_user,
     google_storage_bucket_iam_member.runtime_shop_images,
     google_firestore_index.orders_expiry,
+    google_firestore_index.orders_pending_payment,
     google_firestore_index.orders_daily_captured,
     google_firestore_index.orders_recent,
     google_firestore_index.products_shop_active,

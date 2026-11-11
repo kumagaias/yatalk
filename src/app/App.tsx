@@ -3,6 +3,7 @@ import { MarketPage } from "./MarketPage";
 import { OrganizerLogin } from "./OrganizerLogin";
 import { DashboardPage } from "./DashboardPage";
 import { OwnerLoginPage, OwnerRegistrationPage, OwnerShopsPage, PasswordResetPage, PlatformHome, ShopOrderPage, ShopSetupPage, VerifyEmailPage } from "./TenantPages";
+import { PaymentCancelPage, PaymentReturnPage } from "./PaymentReturnPage";
 
 export function App() {
   return (
@@ -14,6 +15,8 @@ export function App() {
         <Route path="/shops/:shopSlug" element={<MarketPage />} />
         <Route path="/owners/new" element={<OwnerRegistrationPage />} />
         <Route path="/password-reset" element={<PasswordResetPage />} />
+        <Route path="/payment/return" element={<PaymentReturnPage />} />
+        <Route path="/payment/cancel" element={<PaymentCancelPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/:ownerSlug/:shopSlug/orders/:orderId" element={<ShopOrderPage />} />
         <Route path="/:ownerSlug/:shopSlug" element={<MarketPage />} />

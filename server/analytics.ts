@@ -103,7 +103,7 @@ function organizerSummarySqlite(db: SqliteDb, timeZone: string, shopId = DEFAULT
   const rows = db.prepare("SELECT * FROM orders WHERE shop_id = ? ORDER BY created_at DESC LIMIT 50").all(shopId) as OrderRow[];
   const orders = rows.map((order) => ({
     orderId: order.id, state: order.state, totalMinor: order.total_minor, currency: order.currency,
-    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickup_code } : {}),
+    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickup_number ?? order.pickup_code } : {}),
     createdAt: order.created_at,
     items: listOrderLines(db, order.id, shopId).map((item) => ({ name: item.display_name, quantity: item.quantity })),
   }));

@@ -61,7 +61,7 @@ export function publicRoutes(db: Db, config: AppConfig, ai: AiProvider): Router 
     logStage(request.requestId, "gemini_cart_intent", "start");
     let model;
     try {
-      model = chatModelOutputSchema.parse(await ai.interpretCart({ message: input.message, history: input.history, cart, products }));
+      model = chatModelOutputSchema.parse(await ai.interpretCart({ message: input.message, replyLanguage: input.replyLanguage, history: input.history, cart, products }));
       logStage(request.requestId, "gemini_cart_intent", "success");
     } catch (error) {
       logStage(request.requestId, "gemini_cart_intent", "failure", error);
