@@ -38,6 +38,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Cloud Run revision `yatalk-dev-preview-00030-9kf` passed `/api/health` with bounded AG Studio agent loops.
 - Cloud Run revision `yatalk-dev-preview-00031-8pg` passed `/api/health` with compact analytics starter flows.
 - Cloud Run revision `yatalk-dev-preview-00032-wkk` passed `/api/health` with delegated-agent budgets sized for the AG Studio schema → configure → verify → complete flow.
+- Cloud Run revision `yatalk-dev-preview-00033-f4z` passed `/api/health` with one bounded widget health-correction turn before final verification.
 - Focused Gemini tests and the production build passed for the checkout lock and AG Studio fallback.
 - Focused Gemini tests and the production build passed for parallel thought-signature turn reconstruction.
 - Focused tenant and Gemini tests plus the production build passed for the Studio metadata, seeded-call, and cancellation updates.
