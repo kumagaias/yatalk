@@ -36,6 +36,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Cloud Run revision `yatalk-dev-preview-00028-v6v` passed `/api/health` with the Gemini parallel-call ordering fix.
 - Cloud Run revision `yatalk-dev-preview-00029-tw9` passed `/api/health` with expanded AG Studio metadata handling, seeded-call signature validation, and the Stop control.
 - Cloud Run revision `yatalk-dev-preview-00030-9kf` passed `/api/health` with bounded AG Studio agent loops.
+- Cloud Run revision `yatalk-dev-preview-00031-8pg` passed `/api/health` with compact analytics starter flows.
 - Focused Gemini tests and the production build passed for the checkout lock and AG Studio fallback.
 - Focused Gemini tests and the production build passed for parallel thought-signature turn reconstruction.
 - Focused tenant and Gemini tests plus the production build passed for the Studio metadata, seeded-call, and cancellation updates.
