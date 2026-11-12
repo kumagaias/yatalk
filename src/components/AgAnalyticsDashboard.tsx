@@ -6,6 +6,7 @@ import type { CurrencyCode } from "../../shared/currency.js";
 import { get } from "../lib/api";
 import { AgStudioGeminiAdapter } from "../lib/agStudioGeminiAdapter";
 import { upsertTodayOverview } from "../lib/agStudioOverview";
+import { createPrepRecommendation } from "../lib/prepRecommendation";
 
 type AnalyticsData = {
   overview: {
@@ -30,10 +31,7 @@ type AnalyticsData = {
 
 type Props = { shopKey: string; shopName: string; apiBase: string };
 
-const promptStarters = [
-  { label: "What should I prep?", prompt: "Compare each menu item's units sold in the last 7 days with available stock, then give a concise written preparation recommendation. Do not create or change dashboard widgets." },
-  { label: "Items sold today", prompt: "Create one bar chart of units sold today by menu item. Do not add a table or other widgets." },
-];
+const promptStarters: never[] = [];
 
 // The AG Studio defaults allow 100 rounds per agent. That is useful for open-ended
 // assistants, but an overview of a small market should resolve in a few tool calls.
@@ -53,6 +51,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   const [error, setError] = useState("");
   const [aiRunning, setAiRunning] = useState(false);
   const [overviewStatus, setOverviewStatus] = useState("");
+  const [prepRecommendation, setPrepRecommendation] = useState("");
   const harnessRef = useRef<AgAiHarness | null>(null);
   const studioApiRef = useRef<AgStudioApi | null>(null);
   const storageKey = `yatalk.ag-studio.v1.${shopKey}`;
@@ -144,6 +143,11 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
     }
   }, []);
 
+  const showPrepRecommendation = useCallback(() => {
+    if (!result) return;
+    setPrepRecommendation(createPrepRecommendation(result.items));
+  }, [result]);
+
   const onStateUpdated = useCallback((event: AgStudioStateUpdatedEvent) => {
     if (!event.durable) return;
     try { window.localStorage.setItem(storageKey, JSON.stringify(event.state)); }
@@ -156,11 +160,14 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
         <div>
           <p className="eyebrow">AG Studio · Gemini</p>
           <h2 id="ag-analytics-heading"><BarChart3 size={22} aria-hidden="true" />Sales &amp; stock insights</h2>
-          <p>Create a reliable daily overview, or ask Gemini for an ad-hoc report from this shop’s live aggregates.</p>
+          <p>Create reliable daily insights, or ask Gemini a free-form question about this shop’s live aggregates.</p>
         </div>
         <div className="ag-analytics-actions">
           <button className="text-button" type="button" onClick={createTodayOverview} disabled={!data}>
             <BarChart3 size={15} aria-hidden="true" />Generate overview
+          </button>
+          <button className="text-button" type="button" onClick={showPrepRecommendation} disabled={!result}>
+            <BarChart3 size={15} aria-hidden="true" />Prep recommendation
           </button>
           <button className="text-button" type="button" onClick={stopAi} disabled={!aiRunning}>
             <Square size={14} aria-hidden="true" />Stop
@@ -172,6 +179,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
       </div>
       {error && <div className="ag-analytics-error" role="alert">{error} <button className="text-button" type="button" onClick={() => void loadData()}>Retry</button></div>}
       {overviewStatus && <p className="ag-analytics-status" role="status">{overviewStatus}</p>}
+      {prepRecommendation && <p className="ag-analytics-status" role="status">{prepRecommendation}</p>}
       {loading && !data && <p className="ag-analytics-loading" role="status">Loading shop analytics…</p>}
       {data && <div className="ag-analytics-studio">
         <AgStudio

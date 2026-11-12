@@ -4,7 +4,7 @@
 .ag-analytics-heading h2 { display: flex; align-items: center; gap: 9px; }
 .ag-analytics-heading h2 svg { flex: 0 0 auto; color: #2d7665; }
 .ag-analytics-heading p:not(.eyebrow) { max-width: 700px; margin: 7px 0 0; color: var(--muted); font-size: 15px; }
-.ag-analytics-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 13px; }
+.ag-analytics-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 13px; }
 .ag-analytics-actions .text-button:disabled { opacity: .42; }
 .ag-analytics-studio { height: min(760px, 78vh); min-height: 540px; border-top: 1px solid var(--line); }
 .ag-analytics-studio > div { height: 100%; }

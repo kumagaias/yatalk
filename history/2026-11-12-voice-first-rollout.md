@@ -24,6 +24,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Restored Gemini's required parallel tool-call shape after AG Studio interleaves each call with its result: all calls now precede all ordered responses, while sequential signed calls remain separate steps.
 - Allowed AG Studio's evolving built-in tool metadata through the bounded API boundary, then validate and filter it before Vertex. Seeded local tool calls now use Gemini's documented signature-validator marker, and the dashboard exposes a Stop control that cancels an active parent run and its delegates.
 - Replaced the fragile AI-driven “Today’s overview” starter with a deterministic AG Studio multi-KPI action. It reads AG Studio's live schema, creates or updates exactly one widget for net sales, paid orders, and low-stock items, and preserves its position rather than duplicating it. Free-form Gemini reporting remains available for ad-hoc questions.
+- Fixed the deterministic overview's Multi KPI field bindings by declaring a `sum` aggregation for each numeric metric. Added a deterministic preparation recommendation action and removed the two AI prompt starters that were exceeding AG Studio's tool-turn budget.
 
 ## Checks
 
@@ -46,7 +47,9 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Production build and full test suite passed for the corrected delegated-agent turn budgets.
 - Production build and full test suite passed for the deterministic daily-overview widget and its in-place update behavior.
 - Cloud Run revision `yatalk-dev-preview-00034-x5b` passed `/api/health` with deterministic daily-overview generation.
+- Production build and the full test suite passed for the Multi KPI aggregation and deterministic prep-recommendation regression tests.
 
 ## Next steps
 
 - Configure a verified Resend sender and API key before enabling password-reset and verification email delivery.
+- Deploy and visually confirm that regenerating the overview replaces the formerly invalid saved widget with three valid metrics.

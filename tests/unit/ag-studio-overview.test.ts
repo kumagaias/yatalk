@@ -31,9 +31,9 @@ test("today overview is a deterministic three-metric AG Studio widget", () => {
 
   assert.equal(plan.widget.type, "multi-kpi");
   assert.deepEqual(plan.widget.dataMapping.values, [
-    { id: "today_overview.netSales" },
-    { id: "today_overview.paidOrders" },
-    { id: "today_overview.lowStockItems" },
+    { id: "today_overview.netSales", aggregation: "sum" },
+    { id: "today_overview.paidOrders", aggregation: "sum" },
+    { id: "today_overview.lowStockItems", aggregation: "sum" },
   ]);
   assert.deepEqual(plan.layout, { xTrack: 0, yTrack: 4, xSpan: 24, ySpan: 9 });
 });

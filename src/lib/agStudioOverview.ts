@@ -21,7 +21,9 @@ export function createTodayOverviewPlan(
     widgetId: overviewWidgetId,
     widget: {
       type: "multi-kpi",
-      dataMapping: { values: fieldIds.map((id) => ({ id })) },
+      // Multi KPI slots accept measures. Numeric source columns must therefore
+      // include an aggregation, even though today's overview is a single row.
+      dataMapping: { values: fieldIds.map((id) => ({ id, aggregation: "sum" as const })) },
       format: {
         title: { enabled: true, text: "Today's sales overview" },
         style: {
