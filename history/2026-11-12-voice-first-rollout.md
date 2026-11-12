@@ -21,6 +21,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Locked cart and voice mutations as soon as a PayPal checkout is active, so the paid order snapshot cannot diverge from the visible cart. AG Studio now retains Vertex AI tool thought signatures across its browser tool-result turn, allowing the model to generate the report instead of stopping after delegation.
 - The browser adapter also restores retained thought signatures into AG Studio's rebuilt conversation history before each follow-up request, avoiding reliance on Cloud Run instance affinity.
 - Added safe AG Studio provider-failure classification (without provider text or request data) to distinguish Vertex tool-protocol errors from transient quota errors in production logs.
+- Restored Gemini's required parallel tool-call shape after AG Studio interleaves each call with its result: all calls now precede all ordered responses, while sequential signed calls remain separate steps.
 
 ## Checks
 
@@ -30,6 +31,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Gitleaks staged scan passed.
 - Cloud Run revision `yatalk-dev-preview-00027-sg9` passed `/api/health` with the AG Studio compatibility, checkout lock, browser-to-server tool-signature fixes, and safe provider-error classification for the remaining investigation.
 - Focused Gemini tests and the production build passed for the checkout lock and AG Studio fallback.
+- Focused Gemini tests and the production build passed for parallel thought-signature turn reconstruction.
 
 ## Next steps
 

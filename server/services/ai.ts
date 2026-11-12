@@ -149,15 +149,19 @@ function conversationForGemini(input: AgAiConversationItem[]): { contents: Conte
   const contents: Content[] = [];
   const systemMessages: string[] = [];
   const callNames = new Map<string, string>();
-  const pendingCalls: Array<{ functionCall: { id: string; name: string; args: Record<string, unknown> }; thoughtSignature?: string }> = [];
-  const pendingResponses: Array<{ functionResponse: { id: string; name: string; response: Record<string, unknown> } }> = [];
-  const flushCalls = () => {
-    if (pendingCalls.length) contents.push({ role: "model", parts: pendingCalls.splice(0) });
+  const pendingCalls: Array<{ callId: string; part: { functionCall: { id: string; name: string; args: Record<string, unknown> }; thoughtSignature?: string } }> = [];
+  const pendingResponses = new Map<string, Record<string, unknown>>();
+  const flushToolTurn = () => {
+    if (pendingCalls.length === 0) return;
+    contents.push({ role: "model", parts: pendingCalls.map(({ part }) => part) });
+    const responses = pendingCalls.flatMap(({ callId, part }) => {
+      const response = pendingResponses.get(callId);
+      return response ? [{ functionResponse: { id: callId, name: part.functionCall.name, response } }] : [];
+    });
+    if (responses.length) contents.push({ role: "user", parts: responses });
+    pendingCalls.splice(0);
+    pendingResponses.clear();
   };
-  const flushResponses = () => {
-    if (pendingResponses.length) contents.push({ role: "user", parts: pendingResponses.splice(0) });
-  };
-  const flushToolTurn = () => { flushCalls(); flushResponses(); };
 
   for (const candidate of input as unknown[]) {
     if (!isRecord(candidate)) continue;
@@ -187,12 +191,13 @@ function conversationForGemini(input: AgAiConversationItem[]): { contents: Conte
         const decoded: unknown = JSON.parse(candidate.arguments);
         if (isRecord(decoded)) args = decoded;
       } catch { /* Leave malformed model history as an empty argument object. */ }
-      flushResponses();
+      const thoughtSignature = typeof candidate.thoughtSignature === "string" ? candidate.thoughtSignature : savedThoughtSignature(candidate.callId);
+      // Gemini returns a signature on the first parallel call but on every sequential step.
+      // AG Studio interleaves calls and results, so start a new step only after a completed one.
+      if (thoughtSignature && pendingResponses.size > 0) flushToolTurn();
       callNames.set(candidate.callId, candidate.name);
-      const thoughtSignature = typeof candidate.thoughtSignature === "string"
-        ? candidate.thoughtSignature : savedThoughtSignature(candidate.callId);
-      pendingCalls.push({ functionCall: { id: candidate.callId, name: candidate.name, args },
-        ...(thoughtSignature ? { thoughtSignature } : {}) });
+      pendingCalls.push({ callId: candidate.callId, part: { functionCall: { id: candidate.callId, name: candidate.name, args },
+        ...(thoughtSignature ? { thoughtSignature } : {}) } });
       continue;
     }
     if (candidate.type === "function_call_output" && typeof candidate.callId === "string" && typeof candidate.output === "string") {
@@ -203,12 +208,7 @@ function conversationForGemini(input: AgAiConversationItem[]): { contents: Conte
         const decoded: unknown = JSON.parse(candidate.output);
         response = isRecord(decoded) ? decoded : { output: decoded };
       } catch { response = { output: candidate.output }; }
-      flushCalls();
-      pendingResponses.push({ functionResponse: {
-        id: candidate.callId,
-        name,
-        response,
-      } });
+      pendingResponses.set(candidate.callId, response);
     }
   }
   flushToolTurn();

@@ -101,9 +101,9 @@ test("Gemini keeps parallel AG Studio tool calls and their responses in matching
   });
   await provider.runStudioTurn!({
     input: [
-      { kind: "output", type: "function_call", callId: "call-a", name: "create_chart", arguments: "{}" },
-      { kind: "output", type: "function_call", callId: "call-b", name: "create_table", arguments: "{}", thoughtSignature: "previous-signature" },
+      { kind: "output", type: "function_call", callId: "call-a", name: "create_chart", arguments: "{}", thoughtSignature: "previous-signature" },
       { type: "function_call_output", callId: "call-a", output: "{\"ok\":true}" },
+      { kind: "output", type: "function_call", callId: "call-b", name: "create_table", arguments: "{}" },
       { type: "function_call_output", callId: "call-b", output: "{\"ok\":true}" },
     ],
     responseFormat: { type: "text" },
@@ -113,7 +113,7 @@ test("Gemini keeps parallel AG Studio tool calls and their responses in matching
   assert.equal(contents[0]?.parts.length, 2);
   assert.equal(contents[1]?.role, "user");
   assert.equal(contents[1]?.parts.length, 2);
-  assert.equal((contents[0]?.parts[1] as { thoughtSignature?: string }).thoughtSignature, "previous-signature");
+  assert.equal((contents[0]?.parts[0] as { thoughtSignature?: string }).thoughtSignature, "previous-signature");
   const output = await provider.runStudioTurn!({ input: [], responseFormat: { type: "text" } } as never);
   assert.equal((output.output[0] as { thoughtSignature?: string }).thoughtSignature, "opaque-signature");
 });
