@@ -164,6 +164,13 @@ test("shop owners can manage only their own orders, inventory, and summaries", a
     assert.equal(firstSummary.body.metrics.grossSalesMinor, menu.body.products[0].priceMinor);
     assert.equal(secondSummary.body.metrics.grossSalesMinor, 0);
 
+    const nextPickup = await json(`${url}/api/v1/dashboard/shops/${first.shop.slug}/ask`, {
+      method: "POST", headers: postHeaders(first.cookie), body: JSON.stringify({ question: "What is the next customer's menu?" }),
+    });
+    assert.equal(nextPickup.response.status, 200);
+    assert.match(nextPickup.body.answer, /Test yakisoba ×1/);
+    assert.equal(nextPickup.body.sourceFacts.paidUncollectedOrders.length, 1);
+
     const foreignDashboard = await json(`${url}/api/v1/dashboard/shops/${second.shop.slug}/summary`, { headers: { cookie: first.cookie } });
     assert.equal(foreignDashboard.response.status, 404);
     const foreignProduct = await json(`${url}/api/v1/dashboard/shops/${second.shop.slug}/products/${menu.body.products[0].id}`, {

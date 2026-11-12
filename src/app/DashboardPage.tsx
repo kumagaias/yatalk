@@ -252,7 +252,7 @@ export function DashboardPage() {
             <div className="dashboard-column">
               {publicOwnerSlug && summary.shop?.slug && <ShopImageCard key={summary.shop.slug} ownerSlug={publicOwnerSlug} shopSlug={summary.shop.slug} shopName={shopName} enabled={!!summary.shopImageEnabled} />}
               <ShopQRCodeCard shopSlug={summary.shop?.slug ?? shopSlug ?? "little-harbor-market"} ownerSlug={publicOwnerSlug} />
-              <OwnerAssistantPanel currency={currency} draft={menuDraftContext} onAddToMenu={addAssistantSuggestions} onReceiveStock={receiveStock} />
+              <OwnerAssistantPanel apiBase={managementApiBase} currency={currency} draft={menuDraftContext} onAddToMenu={addAssistantSuggestions} onReceiveStock={receiveStock} />
               <section className="dashboard-card service-note"><div className="section-heading"><div><p className="eyebrow">Pickup reminder</p><h2>Keep the line moving</h2></div><CircleHelp size={20} aria-hidden="true" /></div><p>Confirm the pickup number with the guest before marking an order collected. Only paid, uncollected orders can be refunded.</p><Link to={shopUrl} className="text-button">Preview the market <ArrowUpRight size={14} aria-hidden="true" /></Link></section>
             </div>
           </div>

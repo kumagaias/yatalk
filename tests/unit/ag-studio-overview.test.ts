@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgAiSchemaMeta, AgReportState } from "ag-studio";
-import { createTodayOverviewPlan, upsertTodayOverview } from "../../src/lib/agStudioOverview.js";
+import { createTodayOverviewPlan, upsertAnalyticsBoard, upsertTodayOverview } from "../../src/lib/agStudioOverview.js";
 
 const schema: AgAiSchemaMeta = {
   tables: [{
@@ -12,6 +12,20 @@ const schema: AgAiSchemaMeta = {
       field("today_overview.netSales", "Net Sales"),
       field("today_overview.paidOrders", "Paid Orders"),
       field("today_overview.lowStockItems", "Low Stock Items"),
+    ],
+  }, {
+    id: "daily_sales_trend",
+    name: "Daily net sales",
+    reference: "@table[daily_sales_trend]",
+    fields: [field("daily_sales_trend.date", "Date"), field("daily_sales_trend.netSales", "Net Sales")],
+  }, {
+    id: "menu_performance",
+    name: "Menu performance",
+    reference: "@table[menu_performance]",
+    fields: [
+      field("menu_performance.itemName", "Item Name"),
+      field("menu_performance.availableUnits", "Available Units"),
+      field("menu_performance.unitsSoldLast7Days", "Units Sold Last7Days"),
     ],
   }],
   relationships: [],
@@ -45,6 +59,20 @@ test("today overview is updated in place instead of duplicating widgets", () => 
 
   assert.deepEqual(Object.keys(page.widgets ?? {}).sort(), ["existing", "yatalk-today-overview"]);
   assert.deepEqual(page.widgetLayout?.["yatalk-today-overview"], { xTrack: 0, yTrack: 4, xSpan: 24, ySpan: 9 });
+});
+
+test("analytics board adds editable sales and stock charts", () => {
+  const page = upsertAnalyticsBoard(schema, state).pages[0]!;
+  const widgets = page.widgets!;
+
+  assert.equal(widgets["yatalk-daily-sales-trend"]?.type, "line-chart");
+  assert.deepEqual((widgets["yatalk-daily-sales-trend"] as { dataMapping: unknown }).dataMapping, {
+    categoryKey: [{ id: "daily_sales_trend.date" }],
+    valueKey: [{ id: "daily_sales_trend.netSales", aggregation: "sum" }],
+  });
+  assert.equal(widgets["yatalk-stock-demand-comparison"]?.type, "bar-chart-grouped");
+  assert.deepEqual(page.widgetLayout?.["yatalk-daily-sales-trend"], { xTrack: 0, yTrack: 13, xSpan: 12, ySpan: 10 });
+  assert.deepEqual(page.widgetLayout?.["yatalk-stock-demand-comparison"], { xTrack: 12, yTrack: 13, xSpan: 12, ySpan: 10 });
 });
 
 function field(fieldId: string, name: string): AgAiSchemaMeta["tables"][number]["fields"][number] {

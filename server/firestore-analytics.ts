@@ -23,7 +23,7 @@ export async function organizerFacts(db: FirestoreDb, timeZone: string, now = ne
   const bounds = eventDayBounds(now, timeZone);
   const salesWindow = options.includeSalesTrend ? eventDayWindowBounds(now, timeZone, 7) : null;
   const localDay = wallClockParts(now, timeZone);
-  const [shop, orders, products] = await Promise.all([
+  const [shop, orders, products, paidUncollectedOrders] = await Promise.all([
     db.firestoreStore.get<ShopDoc>("shops", shopId),
     db.firestoreStore.query<OrderDoc>("orders", [
       { field: "shopId", op: "==", value: shopId },
@@ -31,6 +31,10 @@ export async function organizerFacts(db: FirestoreDb, timeZone: string, now = ne
       { field: "capturedAt", op: "<", value: salesWindow?.end ?? bounds.end },
     ]),
     listProducts(db, shopId),
+    db.firestoreStore.query<OrderDoc>("orders", [
+      { field: "shopId", op: "==", value: shopId },
+      { field: "state", op: "==", value: "paid" },
+    ]),
   ]);
   if (!shop) throw new Error("Shop was not found");
   const captured = orders.filter((order) => order.capturedAt && order.capturedAt >= (salesWindow?.start ?? bounds.start) && order.capturedAt < (salesWindow?.end ?? bounds.end) &&
@@ -65,6 +69,8 @@ export async function organizerFacts(db: FirestoreDb, timeZone: string, now = ne
     unitsSold: [...units.values()].sort((left, right) => right.units_sold - left.units_sold || left.name.localeCompare(right.name)),
     unitsSoldLast7Days: salesWindow ? [...weeklyUnits.values()].sort((left, right) => right.units_sold - left.units_sold || left.name.localeCompare(right.name)) : [],
     salesTrend: salesWindow ? dailySalesTrend(now, timeZone, 7, captured.map((order) => ({ capturedAt: order.capturedAt!, totalMinor: order.totalMinor, state: order.state }))) : [],
+    paidUncollectedOrders: paidUncollectedOrders.sort((left, right) => (left.capturedAt ?? left.createdAt).localeCompare(right.capturedAt ?? right.createdAt)).slice(0, 10)
+      .map((order) => ({ pickupCode: order.pickupNumber ?? order.pickupCode, items: (order.items ?? []).map((item) => ({ name: item.display_name, quantity: item.quantity })) })),
   };
 }
 

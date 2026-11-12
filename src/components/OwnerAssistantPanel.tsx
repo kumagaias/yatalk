@@ -4,6 +4,7 @@ import type { MenuExtraction } from "../../shared/schemas.js";
 import { post } from "../lib/api";
 import { Alert } from "./Feedback";
 import { formatMinor } from "../../shared/currency.js";
+import { VoiceAssistantButton } from "./VoiceAssistantButton";
 
 type Role = "assistant" | "user";
 type StockPriority = { id: string; name: string; available: number; unitsSoldLast7Days: number; daysOfCover: number; targetStock: number; suggestedQuantity: number };
@@ -11,10 +12,11 @@ type AssistantMessage = { role: Role; content: string; suggestions?: MenuExtract
 type Mode = "menu" | "operations";
 const prompts: Record<Mode, string[]> = {
   menu: ["Suggest 3 simple items for a tea stall", "Help me describe my signature dish"],
-  operations: ["What is almost sold out?", "Which item sold most?", "What should I restock first?"],
+  operations: ["What are today's sales?", "Which paid orders are awaiting pickup?", "What is the next customer's menu?", "Forecast tomorrow's sales"],
 };
 
-export function OwnerAssistantPanel({ currency, draft, onAddToMenu, onReceiveStock }: {
+export function OwnerAssistantPanel({ apiBase, currency, draft, onAddToMenu, onReceiveStock }: {
+  apiBase: string;
   currency: string;
   draft: MenuExtraction["items"];
   onAddToMenu: (items: MenuExtraction["items"]) => void;
@@ -31,28 +33,34 @@ export function OwnerAssistantPanel({ currency, draft, onAddToMenu, onReceiveSto
   const [receivedStock, setReceivedStock] = useState<Record<string, number>>({});
   const [receiptIds, setReceiptIds] = useState<Record<string, string>>({});
 
-  const send = async (event?: FormEvent, suggested?: string) => {
-    event?.preventDefault();
-    const message = (suggested ?? input).trim();
-    if (!message || sending) return;
+  const sendMessage = async (message: string, targetMode: Mode = mode): Promise<string | null> => {
+    const trimmed = message.trim();
+    if (!trimmed || sending) return null;
     setSending(true); setError(""); setInput("");
-    const nextMessages = [...messages, { role: "user" as const, content: message }];
+    const nextMessages = [...messages, { role: "user" as const, content: trimmed }];
     setMessages(nextMessages);
     try {
-      if (mode === "menu") {
-        const result = await post<{ reply: string; suggestions: MenuExtraction["items"] }>("/api/organizer/menu/assistant", {
-          message,
+      if (targetMode === "menu") {
+        const result = await post<{ reply: string; suggestions: MenuExtraction["items"] }>(`${apiBase}/menu/assistant`, {
+          message: trimmed,
           history: messages.slice(-8).map(({ role, content }) => ({ role, content })),
           draft,
         });
         setMessages((current) => [...current, { role: "assistant", content: result.reply, suggestions: result.suggestions }]);
-      } else {
-        const result = await post<{ answer: string; inventoryPriority: StockPriority[]; sourceFacts: Record<string, unknown> }>("/api/organizer/ask", { question: message });
-        setMessages((current) => [...current, { role: "assistant", content: result.answer, inventoryPriority: result.inventoryPriority, sourceFacts: result.sourceFacts }]);
+        return result.reply;
       }
+      const result = await post<{ answer: string; inventoryPriority: StockPriority[]; sourceFacts: Record<string, unknown> }>(`${apiBase}/ask`, { question: trimmed });
+      setMessages((current) => [...current, { role: "assistant", content: result.answer, inventoryPriority: result.inventoryPriority, sourceFacts: result.sourceFacts }]);
+      return result.answer;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The assistant could not reply. Your menu and orders are unchanged.");
+      return null;
     } finally { setSending(false); }
+  };
+
+  const send = async (event?: FormEvent, suggested?: string) => {
+    event?.preventDefault();
+    await sendMessage(suggested ?? input);
   };
 
   return <section className="dashboard-card owner-assistant" aria-labelledby="owner-assistant-heading">
@@ -93,13 +101,14 @@ export function OwnerAssistantPanel({ currency, draft, onAddToMenu, onReceiveSto
       {sending && <p className="assistant-status" role="status">{mode === "menu" ? "Thinking about your menu…" : "Checking live shop data…"}</p>}
     </div>
     {error && <Alert>{error}</Alert>}
-    <div className="assistant-prompts">{prompts[mode].map((prompt) => <button key={prompt} type="button" onClick={() => void send(undefined, prompt)} disabled={sending}>{prompt}</button>)}</div>
+    <div className="assistant-prompts">{prompts[mode].map((prompt) => <button key={prompt} type="button" onClick={() => void sendMessage(prompt)} disabled={sending}>{prompt}</button>)}</div>
+    {mode === "operations" && <VoiceAssistantButton disabled={sending} onVoiceTurn={(transcript) => sendMessage(transcript, "operations")} />}
     <form className="assistant-compose" onSubmit={(event) => void send(event)}>
       <label className="sr-only" htmlFor="owner-assistant-input">{mode === "menu" ? "Ask about your menu" : "Ask about orders and stock"}</label>
       <textarea id="owner-assistant-input" rows={2} maxLength={800} value={input} placeholder={mode === "menu" ? "Describe your stall or ask for menu ideas…" : "Ask about today's orders or stock…"} onChange={(event) => setInput(event.target.value)} />
       <button className="button button-primary" type="submit" disabled={!input.trim() || sending} aria-label="Send message"><Send size={16} aria-hidden="true" /></button>
     </form>
-    <p className="assistant-guardrail"><ShieldCheck size={14} aria-hidden="true" /> AI menu ideas are drafts. Restock quantities use recent sales and require your confirmation after delivery.</p>
+    <p className="assistant-guardrail"><ShieldCheck size={14} aria-hidden="true" /> Voice answers use live shop data. They never change stock, payment, pickup, or refunds.</p>
   </section>;
 
   async function receiveStock(item: StockPriority, receiptKey: string): Promise<void> {

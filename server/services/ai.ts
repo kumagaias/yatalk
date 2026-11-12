@@ -357,7 +357,7 @@ export class GeminiVertex implements AiProvider {
         model: this.model,
         contents: JSON.stringify({ question, facts }),
         config: {
-          systemInstruction: "Answer the organizer using only the supplied database facts. Do not invent or recalculate numbers. If facts do not answer the question, say there is no matching data. For stock questions, use restockCandidates and recent sales. When asked what to restock or prioritize, return up to five IDs from restockCandidates, ordered by lowest daysOfCover, then stronger seven-day sales. Return an empty list for unrelated questions or when there are no candidates. Do not invent forecasts or quantities. Explain that the suggested amount aims for a two-day sales cover with a five-unit minimum. Never change stock, take payment, or issue refunds.",
+          systemInstruction: "Answer the organizer in the same language as the question, using only the supplied database facts. Do not invent or recalculate numbers. If facts do not answer the question, say there is no matching data. For stock questions, use restockCandidates and recent sales. When asked what to restock or prioritize, return up to five IDs from restockCandidates, ordered by lowest daysOfCover, then stronger seven-day sales. Return an empty list for unrelated questions or when there are no candidates. Do not invent forecasts or quantities. Explain that the suggested amount aims for a two-day sales cover with a five-unit minimum. Never change stock, take payment, or issue refunds.",
           responseMimeType: "application/json",
           responseJsonSchema: organizerJsonSchema,
           maxOutputTokens: 220,

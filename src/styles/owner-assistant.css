@@ -25,6 +25,12 @@
 .assistant-status { margin: 0; color: var(--muted); font-size: 13px; }
 .assistant-prompts { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0; }
 .assistant-prompts button { min-height: 36px; padding: 5px 10px; color: var(--muted); font-size: 12px; }
+.voice-assistant { display: grid; gap: 5px; margin: 8px 0; }
+.voice-assistant-button { width: fit-content; color: var(--success); }
+.voice-assistant-button.active { color: var(--error); }
+.voice-assistant-status, .voice-assistant-error { margin: 0; font-size: 12px; }
+.voice-assistant-status { color: var(--muted); }
+.voice-assistant-error { color: var(--error); }
 .assistant-compose { display: flex; align-items: end; gap: 8px; }
 .assistant-compose textarea { flex: 1; min-width: 0; resize: vertical; }
 .assistant-compose .button { width: 44px; min-width: 44px; padding: 0; }

@@ -27,6 +27,8 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Fixed the deterministic overview's Multi KPI field bindings by declaring a `sum` aggregation for each numeric metric. Added a deterministic preparation recommendation action and removed the two AI prompt starters that were exceeding AG Studio's tool-turn budget.
 - Added a deterministic Decision board above AG Studio: a seven-day daily net-sales line, a transparent next-day sales estimate based on the seven-day average, a stock-depletion projection for the most at-risk selling item, and prioritized preparation recommendations. The board stays useful when the optional Gemini/AG Studio chat is unavailable.
 - The Studio data source now includes daily net sales, and concise chat starters for a forecast, preparation actions, and trend explanation are available again. Forecast prompts explicitly require an estimate label and the calculation basis.
+- Removed the separate Decision board. `Generate overview` now creates one editable AG Studio board with a multi-KPI summary, daily net-sales line chart, and available-stock versus seven-day-demand grouped bar chart.
+- Added continuous browser voice chat to the owner operations assistant. It speaks live answers while active and can answer sales, paid-but-uncollected orders, the next pickup menu, and a clearly labelled seven-day-average sales estimate without depending on Gemini availability.
 
 ## Checks
 
@@ -53,6 +55,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Cloud Run revision `yatalk-dev-preview-00035-4rb` passed `/api/health`. In the owner dashboard, regenerating the saved overview replaced all three invalid bindings with `Net Sales (sum)`, `Paid Orders (sum)`, and `Low Stock Items (sum)`.
 - Full test suite passed: 120 passed, 2 skipped. Production build passed. Added coverage for local-time daily sales points, forecast math, stock projection, preparation priority, and the Studio trend API payload.
 - Cloud Run revision `yatalk-dev-preview-00036-d6m` passed `/api/health` with the deterministic sales-and-stock Decision board and daily-sales Studio data source.
+- Full test suite passed: 120 passed, 2 skipped. Production build passed. Added direct-answer and tenant coverage for the next paid pickup menu.
 
 ## Next steps
 

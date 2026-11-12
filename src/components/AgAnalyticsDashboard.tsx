@@ -5,9 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CurrencyCode } from "../../shared/currency.js";
 import { get } from "../lib/api";
 import { AgStudioGeminiAdapter } from "../lib/agStudioGeminiAdapter";
-import { upsertTodayOverview } from "../lib/agStudioOverview";
+import { upsertAnalyticsBoard } from "../lib/agStudioOverview";
 import { createPrepRecommendation } from "../lib/prepRecommendation";
-import { SalesInsightBoard } from "./SalesInsightBoard";
 
 type AnalyticsData = {
   overview: {
@@ -154,11 +153,11 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
     }
 
     try {
-      studioApi.setState(upsertTodayOverview(studioApi.getAiContext().schema(), studioApi.getState()), {
-        historyLabel: "Generated today's overview",
+      studioApi.setState(upsertAnalyticsBoard(studioApi.getAiContext().schema(), studioApi.getState()), {
+        historyLabel: "Generated sales and stock overview",
         source: { type: "api" },
       });
-      setOverviewStatus("Today's overview is ready. You can refine it in AG Studio.");
+      setOverviewStatus("Sales, stock, and demand charts are ready to refine in AG Studio.");
     } catch (cause) {
       setOverviewStatus(cause instanceof Error ? cause.message : "The overview could not be created.");
     }
@@ -202,7 +201,6 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
       {overviewStatus && <p className="ag-analytics-status" role="status">{overviewStatus}</p>}
       {prepRecommendation && <p className="ag-analytics-status" role="status">{prepRecommendation}</p>}
       {loading && !data && <p className="ag-analytics-loading" role="status">Loading shop analytics…</p>}
-      {result && <SalesInsightBoard currency={result.overview.currency} salesTrend={result.salesTrend} items={result.items} />}
       {data && <div className="ag-analytics-studio">
         <AgStudio
           data={data}

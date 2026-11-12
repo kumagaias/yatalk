@@ -1,6 +1,8 @@
-import type { AgAiSchemaMeta, AgMultiKpiWidget, AgReportState, AgWidgetLayoutState } from "ag-studio";
+import type { AgAiSchemaMeta, AgBarChartGrouped, AgLineChart, AgMultiKpiWidget, AgReportState, AgWidgetLayoutState } from "ag-studio";
 
 const overviewWidgetId = "yatalk-today-overview";
+const salesTrendWidgetId = "yatalk-daily-sales-trend";
+const stockComparisonWidgetId = "yatalk-stock-demand-comparison";
 const overviewFieldNames = ["Net Sales", "Paid Orders", "Low Stock Items"];
 
 export type OverviewWidgetPlan = {
@@ -58,13 +60,52 @@ export function upsertTodayOverview(
   };
 }
 
-function resolveOverviewFieldIds(schema: AgAiSchemaMeta): string[] {
-  const table = schema.tables.find(({ id }) => id === "today_overview");
-  if (!table) throw new Error("Today's overview data is not available yet.");
+export function upsertAnalyticsBoard(schema: AgAiSchemaMeta, state: AgReportState): AgReportState {
+  const overview = createTodayOverviewPlan(schema, state);
+  const page = state.pages.find(({ id }) => id === state.selectedPageId);
+  if (!page) throw new Error("The selected report page is not available.");
+  const [salesDate, netSales] = resolveFields(schema, "daily_sales_trend", ["Date", "Net Sales"]);
+  const [itemName, availableUnits, unitsSoldLast7Days] = resolveFields(schema, "menu_performance", ["Item Name", "Available Units", "Units Sold Last7Days"]);
+  const layout = page.widgetLayout ?? {};
+  const chartY = Math.max(overview.layout.yTrack + overview.layout.ySpan, nextAvailableRow(layout));
+  const salesTrend: AgLineChart = {
+    type: "line-chart",
+    dataMapping: { categoryKey: [{ id: salesDate! }], valueKey: [{ id: netSales!, aggregation: "sum" }] },
+    format: { title: { enabled: true, text: "Daily net sales" }, style: { theme: { line: { series: { marker: { enabled: true, shape: "circle" } } } } } },
+  };
+  const stockComparison: AgBarChartGrouped = {
+    type: "bar-chart-grouped",
+    dataMapping: {
+      categoryKey: [{ id: itemName! }],
+      valueKey: [{ id: availableUnits!, aggregation: "sum" }, { id: unitsSoldLast7Days!, aggregation: "sum" }],
+    },
+    format: { title: { enabled: true, text: "Available stock vs 7-day demand" } },
+  };
+  return {
+    ...state,
+    pages: state.pages.map((candidate) => candidate.id !== state.selectedPageId ? candidate : ({
+      ...candidate,
+      widgets: { ...candidate.widgets, [overviewWidgetId]: overview.widget, [salesTrendWidgetId]: salesTrend, [stockComparisonWidgetId]: stockComparison },
+      widgetLayout: {
+        ...layout,
+        [overviewWidgetId]: overview.layout,
+        [salesTrendWidgetId]: layout[salesTrendWidgetId] ?? { xTrack: 0, yTrack: chartY, xSpan: 12, ySpan: 10 },
+        [stockComparisonWidgetId]: layout[stockComparisonWidgetId] ?? { xTrack: 12, yTrack: chartY, xSpan: 12, ySpan: 10 },
+      },
+    })),
+  };
+}
 
-  return overviewFieldNames.map((name) => {
+function resolveOverviewFieldIds(schema: AgAiSchemaMeta): string[] {
+  return resolveFields(schema, "today_overview", overviewFieldNames);
+}
+
+function resolveFields(schema: AgAiSchemaMeta, tableId: string, names: string[]): string[] {
+  const table = schema.tables.find(({ id }) => id === tableId);
+  if (!table) throw new Error(`${tableId} data is not available yet.`);
+  return names.map((name) => {
     const field = table.fields.find(({ name: fieldName }) => normalize(fieldName) === normalize(name));
-    if (!field) throw new Error(`${name} is not available in today's overview.`);
+    if (!field) throw new Error(`${name} is not available in ${table.name}.`);
     return field.fieldId;
   });
 }

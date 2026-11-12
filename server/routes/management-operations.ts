@@ -4,6 +4,7 @@ import type { AppConfig } from "../config.js";
 import type { Db } from "../database.js";
 import { ApiError } from "../errors.js";
 import { organizerFacts, organizerSummary } from "../analytics.js";
+import { answerLiveShopQuestion } from "../organizer-assistant.js";
 import { currencyDigits } from "../../shared/currency.js";
 import { createProducts, patchProduct, receiveProductStock } from "../inventory.js";
 import { buildRestockPlan, isInventoryQuestion } from "../restock-plan.js";
@@ -200,8 +201,13 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
     const { question } = parseBody(organizerQuestionSchema, request);
     const shopId = shopIdOf(request);
     const includeSalesTrend = isInventoryQuestion(question);
-    const sourceFacts = await organizerFacts(db, request.shop?.timeZone ?? config.eventTimeZone, new Date(), shopId, { includeSalesTrend });
+    const sourceFacts = await organizerFacts(db, request.shop?.timeZone ?? config.eventTimeZone, new Date(), shopId, { includeSalesTrend: includeSalesTrend || /(?:売上予測|売上.*(?:予想|見込み)|forecast.*sales|sales.*forecast|estimate.*sales)/iu.test(question) });
     const restockCandidates = includeSalesTrend ? buildRestockPlan(sourceFacts.products, sourceFacts.unitsSoldLast7Days) : [];
+    const liveAnswer = answerLiveShopQuestion(question, sourceFacts);
+    if (liveAnswer) {
+      response.json({ answer: liveAnswer, inventoryPriority: [], sourceFacts });
+      return;
+    }
     logStage(request.requestId, "gemini_organizer_answer", "start");
     try {
       const result = await ai.explainFacts(question, { ...sourceFacts, restockCandidates });

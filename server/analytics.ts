@@ -79,6 +79,12 @@ function organizerFactsSqlite(db: SqliteDb, timeZone: string, now = new Date(), 
   const salesTrend = salesWindow ? dailySalesTrend(now, timeZone, 7, db.prepare(`SELECT captured_at AS capturedAt, total_minor AS totalMinor, state
     FROM orders WHERE shop_id = ? AND captured_at >= ? AND captured_at < ?`).all(shopId, salesWindow.start, salesWindow.end) as Array<{ capturedAt: string; totalMinor: number; state: string }>) : [];
   const lowStock = products.filter((product) => product.available <= 5);
+  const paidUncollectedOrders = (db.prepare(`SELECT id, pickup_number, pickup_code FROM orders
+    WHERE shop_id = ? AND state = 'paid' ORDER BY captured_at ASC LIMIT 10`).all(shopId) as Array<{ id: string; pickup_number: string | null; pickup_code: string | null }>)
+    .map((order) => ({
+      pickupCode: order.pickup_number ?? order.pickup_code,
+      items: listOrderLines(db, order.id, shopId).map((item) => ({ name: item.display_name, quantity: item.quantity })),
+    }));
   return {
     date: `${localDay.year}-${String(localDay.month).padStart(2, "0")}-${String(localDay.day).padStart(2, "0")}`, timeZone, currency: shop.currency,
     grossCapturedMinor: metrics.gross_captured_minor,
@@ -91,6 +97,7 @@ function organizerFactsSqlite(db: SqliteDb, timeZone: string, now = new Date(), 
     unitsSold: soldRows,
     unitsSoldLast7Days,
     salesTrend,
+    paidUncollectedOrders,
   };
 }
 
