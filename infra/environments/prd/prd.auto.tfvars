@@ -4,7 +4,7 @@ enable_paypal_webhook    = true
 enable_organizer_access  = true
 billing_account_id       = "01C5F2-B7B26A-878646"
 project_number           = "833309439461"
-container_image          = "asia-northeast1-docker.pkg.dev/s-yatalk/yatalk-dev/yatalk@sha256:b57be10c75be143f9caacf6f693aa083ffc906441c3e039947dad19ae290ad8c"
+container_image          = "asia-northeast1-docker.pkg.dev/s-yatalk/yatalk-dev/yatalk@sha256:a82897802bb1ecd06f33cc16e9a5740fb8705e693bf1d69036acf5f3e1ead673"
 app_origin               = "https://yatalk.kumagaias.com"
 
 enable_custom_domain = true

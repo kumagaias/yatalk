@@ -61,6 +61,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Refresh analytics is now an icon-only control. Production build and the full test suite passed (119 passed, 2 skipped).
 - Cloud Run revision `yatalk-dev-preview-00038-v7r` passed `/api/health` with the preset controls and generated-report canvas focus.
 - Added a browser-persisted, per-shop library of named AG Studio dashboards, migrated the prior single-report state into `Overview`, and exposed a client-side `create_dashboard` AI tool for Operations, Sales, and Inventory templates. Applied a denser monitoring-style Studio theme. Production build and full tests passed (122 passed, 2 skipped).
+- Cloud Run revision `yatalk-dev-preview-00039-k5l` passed `/api/health` with saved dashboards and chat-driven dashboard creation.
 
 ## Next steps
 
