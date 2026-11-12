@@ -57,6 +57,8 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Cloud Run revision `yatalk-dev-preview-00036-d6m` passed `/api/health` with the deterministic sales-and-stock Decision board and daily-sales Studio data source.
 - Full test suite passed: 120 passed, 2 skipped. Production build passed. Added direct-answer and tenant coverage for the next paid pickup menu.
 - Cloud Run revision `yatalk-dev-preview-00037-rw9` passed `/api/health` with the AG Studio-native overview board and the owner voice analytics assistant.
+- Replaced the deterministic prep-recommendation control with AG Studio presets: a full overview, a 7-day sales line, and stock-versus-demand. Each preset collapses the AI and editor panels after generation so the report canvas is visible; AG Studio's edge controls reopen them.
+- Refresh analytics is now an icon-only control. Production build and the full test suite passed (119 passed, 2 skipped).
 
 ## Next steps
 

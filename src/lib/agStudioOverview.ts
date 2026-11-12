@@ -5,6 +5,8 @@ const salesTrendWidgetId = "yatalk-daily-sales-trend";
 const stockComparisonWidgetId = "yatalk-stock-demand-comparison";
 const overviewFieldNames = ["Net Sales", "Paid Orders", "Low Stock Items"];
 
+export type AnalyticsPreset = "overview" | "salesTrend" | "stockHealth";
+
 export type OverviewWidgetPlan = {
   widgetId: string;
   widget: AgMultiKpiWidget;
@@ -93,6 +95,41 @@ export function upsertAnalyticsBoard(schema: AgAiSchemaMeta, state: AgReportStat
         [stockComparisonWidgetId]: layout[stockComparisonWidgetId] ?? { xTrack: 12, yTrack: chartY, xSpan: 12, ySpan: 10 },
       },
     })),
+  };
+}
+
+export function upsertAnalyticsPreset(schema: AgAiSchemaMeta, state: AgReportState, preset: AnalyticsPreset): AgReportState {
+  if (preset === "overview") return upsertTodayOverview(schema, state);
+  const page = state.pages.find(({ id }) => id === state.selectedPageId);
+  if (!page) throw new Error("The selected report page is not available.");
+  const layout = page.widgetLayout ?? {};
+  const chart = preset === "salesTrend" ? salesTrendChart(schema) : stockHealthChart(schema);
+  const widgetId = preset === "salesTrend" ? salesTrendWidgetId : stockComparisonWidgetId;
+  return {
+    ...state,
+    pages: state.pages.map((candidate) => candidate.id !== state.selectedPageId ? candidate : ({
+      ...candidate,
+      widgets: { ...candidate.widgets, [widgetId]: chart },
+      widgetLayout: { ...layout, [widgetId]: layout[widgetId] ?? { xTrack: 0, yTrack: nextAvailableRow(layout), xSpan: 24, ySpan: 11 } },
+    })),
+  };
+}
+
+function salesTrendChart(schema: AgAiSchemaMeta): AgLineChart {
+  const [salesDate, netSales] = resolveFields(schema, "daily_sales_trend", ["Date", "Net Sales"]);
+  return {
+    type: "line-chart",
+    dataMapping: { categoryKey: [{ id: salesDate! }], valueKey: [{ id: netSales!, aggregation: "sum" }] },
+    format: { title: { enabled: true, text: "Daily net sales" }, style: { theme: { line: { series: { marker: { enabled: true, shape: "circle" } } } } } },
+  };
+}
+
+function stockHealthChart(schema: AgAiSchemaMeta): AgBarChartGrouped {
+  const [itemName, availableUnits, unitsSoldLast7Days] = resolveFields(schema, "menu_performance", ["Item Name", "Available Units", "Units Sold Last7Days"]);
+  return {
+    type: "bar-chart-grouped",
+    dataMapping: { categoryKey: [{ id: itemName! }], valueKey: [{ id: availableUnits!, aggregation: "sum" }, { id: unitsSoldLast7Days!, aggregation: "sum" }] },
+    format: { title: { enabled: true, text: "Available stock vs 7-day demand" } },
   };
 }
 

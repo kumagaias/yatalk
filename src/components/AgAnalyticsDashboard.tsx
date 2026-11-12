@@ -1,12 +1,11 @@
 import { createAiHarness, directLlmRunner, type AgAiHarness, type AgAiHarnessSetupParams, type AgAiPromptStarter, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
 import { AgStudio, type AgRegistry } from "ag-studio-react";
-import { BarChart3, RefreshCw, Square } from "lucide-react";
+import { BarChart3, Boxes, ChartLine, RefreshCw, Sparkles, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CurrencyCode } from "../../shared/currency.js";
 import { get } from "../lib/api";
 import { AgStudioGeminiAdapter } from "../lib/agStudioGeminiAdapter";
-import { upsertAnalyticsBoard } from "../lib/agStudioOverview";
-import { createPrepRecommendation } from "../lib/prepRecommendation";
+import { type AnalyticsPreset, upsertAnalyticsBoard, upsertAnalyticsPreset } from "../lib/agStudioOverview";
 
 type AnalyticsData = {
   overview: {
@@ -65,7 +64,6 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   const [error, setError] = useState("");
   const [aiRunning, setAiRunning] = useState(false);
   const [overviewStatus, setOverviewStatus] = useState("");
-  const [prepRecommendation, setPrepRecommendation] = useState("");
   const harnessRef = useRef<AgAiHarness | null>(null);
   const studioApiRef = useRef<AgStudioApi | null>(null);
   const storageKey = `yatalk.ag-studio.v1.${shopKey}`;
@@ -153,20 +151,35 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
     }
 
     try {
-      studioApi.setState(upsertAnalyticsBoard(studioApi.getAiContext().schema(), studioApi.getState()), {
+      const report = upsertAnalyticsBoard(studioApi.getAiContext().schema(), studioApi.getState());
+      studioApi.setState(collapseEditorPanels(report), {
         historyLabel: "Generated sales and stock overview",
         source: { type: "api" },
       });
-      setOverviewStatus("Sales, stock, and demand charts are ready to refine in AG Studio.");
+      setOverviewStatus("Overview created. Use the edge arrows in AG Studio whenever you want to edit it.");
     } catch (cause) {
       setOverviewStatus(cause instanceof Error ? cause.message : "The overview could not be created.");
     }
   }, []);
 
-  const showPrepRecommendation = useCallback(() => {
-    if (!result) return;
-    setPrepRecommendation(createPrepRecommendation(result.items));
-  }, [result]);
+  const applyPreset = useCallback((preset: AnalyticsPreset) => {
+    const studioApi = studioApiRef.current;
+    if (!studioApi) {
+      setOverviewStatus("The report is still loading. Try again in a moment.");
+      return;
+    }
+
+    try {
+      const report = upsertAnalyticsPreset(studioApi.getAiContext().schema(), studioApi.getState(), preset);
+      studioApi.setState(collapseEditorPanels(report), {
+        historyLabel: preset === "salesTrend" ? "Added daily sales trend" : "Added stock health chart",
+        source: { type: "api" },
+      });
+      setOverviewStatus(`${preset === "salesTrend" ? "Sales trend" : "Stock health"} chart created. Use the edge arrows in AG Studio whenever you want to edit it.`);
+    } catch (cause) {
+      setOverviewStatus(cause instanceof Error ? cause.message : "The preset could not be created.");
+    }
+  }, []);
 
   const onStateUpdated = useCallback((event: AgStudioStateUpdatedEvent) => {
     if (!event.durable) return;
@@ -183,24 +196,34 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
           <p>Create reliable daily insights, or ask Gemini a free-form question about this shop’s live aggregates.</p>
         </div>
         <div className="ag-analytics-actions">
-          <button className="text-button" type="button" onClick={createTodayOverview} disabled={!data}>
-            <BarChart3 size={15} aria-hidden="true" />Generate overview
-          </button>
-          <button className="text-button" type="button" onClick={showPrepRecommendation} disabled={!result}>
-            <BarChart3 size={15} aria-hidden="true" />Prep recommendation
-          </button>
           <button className="text-button" type="button" onClick={stopAi} disabled={!aiRunning}>
             <Square size={14} aria-hidden="true" />Stop
           </button>
-          <button className="text-button" type="button" onClick={() => void loadData()} disabled={loading}>
-            <RefreshCw size={15} aria-hidden="true" />{loading ? "Refreshing…" : "Refresh data"}
+          <button className="icon-button ag-refresh-button" type="button" onClick={() => void loadData()} disabled={loading} aria-label="Refresh analytics data" title="Refresh analytics data">
+            <RefreshCw size={17} aria-hidden="true" className={loading ? "spin" : undefined} />
           </button>
         </div>
       </div>
       {error && <div className="ag-analytics-error" role="alert">{error} <button className="text-button" type="button" onClick={() => void loadData()}>Retry</button></div>}
       {overviewStatus && <p className="ag-analytics-status" role="status">{overviewStatus}</p>}
-      {prepRecommendation && <p className="ag-analytics-status" role="status">{prepRecommendation}</p>}
       {loading && !data && <p className="ag-analytics-loading" role="status">Loading shop analytics…</p>}
+      {data && <div className="ag-preset-bar" aria-label="AG Studio overview presets">
+        <div className="ag-preset-intro">
+          <span className="eyebrow">Ready-made views</span>
+          <strong>Start with a report, then refine it in AG Studio.</strong>
+        </div>
+        <div className="ag-preset-actions">
+          <button className="button button-primary ag-generate-button" type="button" onClick={createTodayOverview}>
+            <Sparkles size={17} aria-hidden="true" />Generate overview
+          </button>
+          <button className="ag-preset-button" type="button" onClick={() => applyPreset("salesTrend")}>
+            <ChartLine size={18} aria-hidden="true" /><span><strong>Sales trend</strong><small>7-day line</small></span>
+          </button>
+          <button className="ag-preset-button" type="button" onClick={() => applyPreset("stockHealth")}>
+            <Boxes size={18} aria-hidden="true" /><span><strong>Stock health</strong><small>Demand comparison</small></span>
+          </button>
+        </div>
+      </div>}
       {data && <div className="ag-analytics-studio">
         <AgStudio
           data={data}
@@ -225,4 +248,19 @@ function readSavedState(key: string): AgReportState<AgRegistry> | undefined {
   } catch {
     return undefined;
   }
+}
+
+function collapseEditorPanels(state: AgReportState): AgReportState {
+  const currentPanels = state.panels ?? {};
+  const collapse = (id: "ai" | "filters" | "edit" | "data") => ({ ...currentPanels[id], collapsed: true });
+  return {
+    ...state,
+    panels: {
+      ...currentPanels,
+      ai: collapse("ai"),
+      filters: collapse("filters"),
+      edit: collapse("edit"),
+      data: collapse("data"),
+    },
+  };
 }
