@@ -45,6 +45,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Production build and full test suite passed for the narrow analytics prompt flows.
 - Production build and full test suite passed for the corrected delegated-agent turn budgets.
 - Production build and full test suite passed for the deterministic daily-overview widget and its in-place update behavior.
+- Cloud Run revision `yatalk-dev-preview-00034-x5b` passed `/api/health` with deterministic daily-overview generation.
 
 ## Next steps
 
