@@ -268,16 +268,20 @@ export class GeminiVertex implements AiProvider {
         maxOutputTokens: 2_000,
       },
     };
-    try {
-      const generated = await this.generateStudio(params);
-      return {
-        id: randomUUID(), createdAt: Date.now(), status: "completed",
-        output: studioOutputItems(generated), model: this.model,
-      };
-    } catch (error) {
-      if (error instanceof ProviderError) throw error;
-      throw new ProviderError("gemini", "ag_studio_turn", false);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const generated = await this.generateStudio(params);
+        return {
+          id: randomUUID(), createdAt: Date.now(), status: "completed",
+          output: studioOutputItems(generated), model: this.model,
+        };
+      } catch (error) {
+        if (attempt === 0) continue;
+        if (error instanceof ProviderError) throw error;
+        throw new ProviderError("gemini", "ag_studio_turn", false);
+      }
     }
+    throw new ProviderError("gemini", "ag_studio_turn", false);
   }
 
   async interpretCart(context: ChatContext): Promise<ChatModelOutput> {

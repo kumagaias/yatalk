@@ -13,6 +13,7 @@ import type { MenuExtraction } from "../../shared/schemas.js";
 import { postImage } from "../lib/api";
 import { loadSampleMenuFile } from "../lib/sample-menu";
 import { SampleMenuPreview } from "../components/SampleMenuPreview";
+import { ShopDangerZone } from "../components/ShopDangerZone";
 
 type ShopSummary = { slug: string; name: string; status: "active" | "inactive"; ownerSlug?: string; currency?: string };
 type OwnerSession = { authenticated: boolean; email?: string; displayName?: string; ownerSlug?: string; defaultCurrency?: string; emailVerified?: boolean };
@@ -240,8 +241,10 @@ export function OwnerLoginPage() {
         {error && <Alert>{error}</Alert>}
         <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
       </form>
-      <Link className="back-link" to="/password-reset">Forgot your password?</Link>
-      <Link className="back-link" to="/owners/new">Create an owner account</Link>
+      <div className="auth-links">
+        <Link className="back-link" to="/password-reset">Forgot your password?</Link>
+        <Link className="back-link" to="/owners/new">Create an owner account</Link>
+      </div>
     </section></main>
   </div>;
 }
@@ -376,7 +379,7 @@ export function OwnerShopsPage() {
       {loading && <Loading>Loading your shops…</Loading>}
       {error && <Alert onRetry={() => void load()}>{error}</Alert>}
       {!loading && !error && shops.length === 0 && <div className="empty-state"><strong>No shops yet</strong><Link className="text-button" to="/dashboard/shops/new">Create your first shop</Link></div>}
-      <div className="tenant-shop-grid">{shops.map((shop) => <article className="tenant-shop-card" key={shop.slug}><p className="eyebrow">{shop.status === "active" ? "Open" : "Paused"}</p><h2>{shop.name}</h2><p>yatalk.kumagaias.com/{shop.ownerSlug}/{shop.slug}</p><div className="tenant-actions"><Link className="button button-primary" to={`/dashboard/${encodeURIComponent(shop.ownerSlug ?? "")}/${encodeURIComponent(shop.slug)}`}>Manage shop <ArrowRight size={16} /></Link><Link className="text-button" to={`/${encodeURIComponent(shop.ownerSlug ?? "")}/${encodeURIComponent(shop.slug)}`} target="_blank" rel="noreferrer">Open storefront <ArrowUpRight size={15} /></Link></div></article>)}</div>
+      <div className="tenant-shop-grid">{shops.map((shop) => <article className="tenant-shop-card" key={shop.slug}><p className="eyebrow">{shop.status === "active" ? "Open" : "Paused"}</p><h2>{shop.name}</h2><p>yatalk.kumagaias.com/{shop.ownerSlug}/{shop.slug}</p><div className="tenant-actions"><Link className="button button-primary" to={`/dashboard/${encodeURIComponent(shop.ownerSlug ?? "")}/${encodeURIComponent(shop.slug)}`}>Manage shop <ArrowRight size={16} /></Link><Link className="text-button" to={`/${encodeURIComponent(shop.ownerSlug ?? "")}/${encodeURIComponent(shop.slug)}`} target="_blank" rel="noreferrer">Open storefront <ArrowUpRight size={15} /></Link></div><ShopDangerZone name={shop.name} slug={shop.slug} onDeleted={() => void load()} /></article>)}</div>
     </main>
   </div>;
 }

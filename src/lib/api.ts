@@ -91,4 +91,7 @@ export const patch = <T,>(path: string, body: unknown) => requestJson<T>(path, {
   method: "PATCH",
   body: JSON.stringify(body),
 });
-export const del = <T,>(path: string) => requestJson<T>(path, { method: "DELETE" });
+export const del = <T,>(path: string, body?: unknown) => requestJson<T>(path, {
+  method: "DELETE",
+  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+});

@@ -117,3 +117,15 @@ test("Gemini keeps parallel AG Studio tool calls and their responses in matching
   const output = await provider.runStudioTurn!({ input: [], responseFormat: { type: "text" } } as never);
   assert.equal((output.output[0] as { thoughtSignature?: string }).thoughtSignature, "opaque-signature");
 });
+
+test("Gemini retries one transient AG Studio turn failure", async () => {
+  let calls = 0;
+  const provider = new GeminiVertex(config, async () => "", async () => {
+    calls += 1;
+    if (calls === 1) throw new Error("temporary provider failure");
+    return { text: "Here is today's overview." } as never;
+  });
+  const result = await provider.runStudioTurn!({ input: [], responseFormat: { type: "text" } } as never);
+  assert.equal(calls, 2);
+  assert.equal(result.output[0]?.type, "message");
+});

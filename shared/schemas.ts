@@ -164,6 +164,10 @@ export const paymentReturnCaptureSchema = z.object({
   paypalOrderId: z.string().regex(/^[A-Z0-9]{1,36}$/),
 }).strict();
 
+export const deleteShopRequestSchema = z.object({
+  confirmation: z.string().trim().min(1).max(80),
+}).strict();
+
 export const emailVerificationTokenSchema = z.object({
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 }).strict();

@@ -83,6 +83,27 @@ test("store registration creates path-addressed shops with separate menus and ca
   });
 });
 
+test("an owner can delete only a confirmed shop", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const owner = await createOwner(url, `delete-me-${suffix}`, `delete-${suffix}@example.test`);
+    const path = `${url}/api/v1/dashboard/shops/${owner.shop.slug}`;
+    const rejected = await json(path, {
+      method: "DELETE", headers: postHeaders(owner.cookie), body: JSON.stringify({ confirmation: "wrong name" }),
+    });
+    assert.equal(rejected.response.status, 400);
+    const deleted = await json(path, {
+      method: "DELETE", headers: postHeaders(owner.cookie), body: JSON.stringify({ confirmation: owner.shop.name }),
+    });
+    assert.equal(deleted.response.status, 200);
+    assert.equal(deleted.body.deleted, true);
+    const list = await json(`${url}/api/v1/dashboard/shops`, { headers: { cookie: owner.cookie } });
+    assert.deepEqual(list.body.shops, []);
+    const storefront = await json(`${url}/api/v1/shops/${owner.shop.slug}/menu`);
+    assert.equal(storefront.response.status, 404);
+  });
+});
+
 test("shop owners can manage only their own orders, inventory, and summaries", async () => {
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);

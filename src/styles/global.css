@@ -233,7 +233,17 @@ a { color: inherit; }
 .shop-cover { width: min(100%, 1240px); max-height: 360px; margin: 0 auto 18px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-large); background: var(--soft-green); }
 .shop-cover img { display: block; width: 100%; max-height: 360px; object-fit: cover; }
 .back-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 18px; color: var(--muted); font-size: 14px; text-decoration: none; }
+.auth-links { display: grid; justify-items: start; }
+.auth-links .back-link + .back-link { margin-top: 10px; }
 .back-link:hover { color: var(--tomato-dark); }
+.shop-danger-zone { margin-top: 18px; border-top: 1px solid #efc5bd; padding-top: 13px; color: #8f3024; }
+.shop-danger-zone summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 700; }
+.shop-danger-zone form { display: grid; gap: 10px; margin-top: 12px; }
+.shop-danger-zone p { margin: 0; font-size: 13px; line-height: 1.45; }
+.shop-danger-zone label { font-size: 13px; }
+.shop-danger-zone input { width: 100%; border: 1px solid #dca79d; border-radius: 8px; padding: 9px; font: inherit; }
+.button-danger { background: #bc3b2b; color: #fff; }
+.button-danger:hover:not(:disabled) { background: #972d21; }
 
 .landing-main { width: min(1000px, calc(100% - 48px)); margin: 0 auto; padding: 70px 0 50px; }
 .landing-hero { padding: 54px clamp(24px, 7vw, 88px); border: 1px solid var(--line); border-radius: var(--radius-large); background: var(--surface); box-shadow: var(--shadow-card); }
