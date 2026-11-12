@@ -48,8 +48,8 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Production build and full test suite passed for the deterministic daily-overview widget and its in-place update behavior.
 - Cloud Run revision `yatalk-dev-preview-00034-x5b` passed `/api/health` with deterministic daily-overview generation.
 - Production build and the full test suite passed for the Multi KPI aggregation and deterministic prep-recommendation regression tests.
+- Cloud Run revision `yatalk-dev-preview-00035-4rb` passed `/api/health`. In the owner dashboard, regenerating the saved overview replaced all three invalid bindings with `Net Sales (sum)`, `Paid Orders (sum)`, and `Low Stock Items (sum)`.
 
 ## Next steps
 
 - Configure a verified Resend sender and API key before enabling password-reset and verification email delivery.
-- Deploy and visually confirm that regenerating the overview replaces the formerly invalid saved widget with three valid metrics.
