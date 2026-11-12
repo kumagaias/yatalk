@@ -149,6 +149,20 @@ test("Gemini restores a tool thought signature when AG Studio omits it on the ne
   assert.equal(contents[0]?.parts[0]?.thoughtSignature, "server-saved-signature");
 });
 
+test("Gemini marks AG Studio's seeded tool calls when no model signature exists", async () => {
+  let captured: Parameters<GeminiStudioModelCall>[0] | undefined;
+  const provider = new GeminiVertex(config, async () => "", async (request) => {
+    captured = request;
+    return { text: "The report is ready." } as never;
+  });
+  await provider.runStudioTurn!({ input: [
+    { kind: "output", type: "function_call", callId: "seeded-call", name: "view_report", arguments: "{}" },
+    { type: "function_call_output", callId: "seeded-call", output: "{\"success\":true}", status: "completed" },
+  ], responseFormat: { type: "text" } } as never);
+  const contents = captured?.contents as Array<{ parts: Array<{ thoughtSignature?: string }> }>;
+  assert.equal(contents[0]?.parts[0]?.thoughtSignature, "skip_thought_signature_validator");
+});
+
 test("Gemini classifies a missing tool thought signature without logging provider text", async () => {
   const error = Object.assign(new Error("Function call is missing a thought_signature."), { status: 400 });
   const provider = new GeminiVertex(config, async () => "", async () => { throw error; });

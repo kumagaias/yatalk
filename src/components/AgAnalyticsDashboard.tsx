@@ -1,7 +1,7 @@
-import { createAiHarness, type AgAiHarnessSetupParams, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
+import { createAiHarness, type AgAiHarness, type AgAiHarnessSetupParams, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
 import { AgStudio, type AgRegistry } from "ag-studio-react";
-import { BarChart3, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { BarChart3, RefreshCw, Square } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CurrencyCode } from "../../shared/currency.js";
 import { get } from "../lib/api";
 import { AgStudioGeminiAdapter } from "../lib/agStudioGeminiAdapter";
@@ -39,6 +39,8 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   const [result, setResult] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [aiRunning, setAiRunning] = useState(false);
+  const harnessRef = useRef<AgAiHarness | null>(null);
   const storageKey = `yatalk.ag-studio.v1.${shopKey}`;
   const [initialState] = useState<AgReportState<AgRegistry> | undefined>(() => readSavedState(storageKey));
   const adapter = useMemo(() => new AgStudioGeminiAdapter(`${apiBase}/studio/turn`), [apiBase]);
@@ -56,6 +58,16 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   }, [apiBase]);
 
   useEffect(() => { void loadData(); }, [loadData]);
+
+  const syncAiStatus = useCallback(() => {
+    const harness = harnessRef.current;
+    setAiRunning(!!harness?.threads.some(({ threadId }) => harness.getSession?.(threadId)?.status === "running"));
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(syncAiStatus, 300);
+    return () => window.clearInterval(timer);
+  }, [syncAiStatus]);
 
   const data = useMemo<AgDataSourcesDefinition<AgRegistry> | undefined>(() => result ? ({
     description: `Read-only sales and stock aggregates for ${shopName}. Sales and prices are expressed in ${result.overview.currency}. Do not infer customer or order details from these totals.`,
@@ -77,10 +89,20 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
 
   // AG Studio's React registry narrows the wrapper API, while createAiHarness currently accepts
   // the base Studio API only. Both are the same runtime Studio API.
-  const configureAi = useCallback((params: AgAiHarnessSetupParams) => createAiHarness(params.api as unknown as AgStudioApi, {
-    adapter,
-    promptStarters,
-  }), [adapter]);
+  const configureAi = useCallback((params: AgAiHarnessSetupParams) => {
+    const harness = createAiHarness(params.api as unknown as AgStudioApi, { adapter, promptStarters });
+    harnessRef.current = harness;
+    return harness;
+  }, [adapter]);
+
+  const stopAi = useCallback(() => {
+    const harness = harnessRef.current;
+    for (const { threadId } of harness?.threads ?? []) {
+      const session = harness?.getSession?.(threadId);
+      if (session?.status === "running") session.cancel();
+    }
+    window.setTimeout(syncAiStatus, 0);
+  }, [syncAiStatus]);
 
   const onStateUpdated = useCallback((event: AgStudioStateUpdatedEvent) => {
     if (!event.durable) return;
@@ -96,9 +118,14 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
           <h2 id="ag-analytics-heading"><BarChart3 size={22} aria-hidden="true" />Sales &amp; stock insights</h2>
           <p>Ask Gemini to build a visual report from this shop’s live aggregates, then refine it with AG Studio.</p>
         </div>
-        <button className="text-button" type="button" onClick={() => void loadData()} disabled={loading}>
-          <RefreshCw size={15} aria-hidden="true" />{loading ? "Refreshing…" : "Refresh data"}
-        </button>
+        <div className="ag-analytics-actions">
+          <button className="text-button" type="button" onClick={stopAi} disabled={!aiRunning}>
+            <Square size={14} aria-hidden="true" />Stop
+          </button>
+          <button className="text-button" type="button" onClick={() => void loadData()} disabled={loading}>
+            <RefreshCw size={15} aria-hidden="true" />{loading ? "Refreshing…" : "Refresh data"}
+          </button>
+        </div>
       </div>
       {error && <div className="ag-analytics-error" role="alert">{error} <button className="text-button" type="button" onClick={() => void loadData()}>Retry</button></div>}
       {loading && !data && <p className="ag-analytics-loading" role="status">Loading shop analytics…</p>}

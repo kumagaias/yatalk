@@ -111,7 +111,9 @@ test("AG Studio accepts extended conversation metadata before invoking its adapt
     const result = await json(`${url}/api/v1/dashboard/shops/${owner.shop.slug}/studio/turn`, {
       method: "POST", headers: postHeaders(owner.cookie), body: JSON.stringify({
         input: Array.from({ length: 81 }, () => ({ kind: "input", type: "message", role: "user", content: [{ type: "text", text: "Show sales." }] })),
-        instructions: null, tools: null, toolChoice: null,
+        instructions: null,
+        tools: [{ name: "view_report", description: "View the current report.", parameters: {}, kind: "future-agent", clientVersion: "3.1" }],
+        toolChoice: { name: "view_report", futureMetadata: true },
         responseFormat: { type: "text", clientVersion: "3.1" },
       }),
     });

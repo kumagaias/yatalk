@@ -23,21 +23,11 @@ const menuScansInFlight = new Set<string>();
 const studioTurnRequestSchema = z.object({
   input: z.array(z.unknown()).max(240),
   instructions: z.string().max(64_000).nullish().transform((value) => value ?? undefined),
-  tools: z.array(z.object({
-    name: z.string().min(1).max(128),
-    description: z.string().max(4_000),
-    parameters: z.unknown(),
-    kind: z.enum(["client", "server", "provided"]).optional(),
-    provider: z.unknown().optional(),
-  }).passthrough()).max(128).nullish().transform((value) => value ?? undefined),
-  toolChoice: z.union([
-    z.enum(["auto", "none", "required"]),
-    z.object({ name: z.string().min(1).max(128) }).strict(),
-  ]).nullish().transform((value) => value ?? undefined),
-  responseFormat: z.union([
-    z.object({ type: z.literal("text") }).passthrough(),
-    z.object({ type: z.literal("json"), name: z.string().min(1).max(128), description: z.string().max(1_000).optional(), schema: z.record(z.string(), z.unknown()) }).passthrough(),
-  ]),
+  // Tool metadata is owned by AG Studio and changes between its built-in agents.
+  // The Gemini adapter independently filters tool declarations before calling Vertex.
+  tools: z.array(z.unknown()).max(128).nullish().transform((value) => value ?? undefined),
+  toolChoice: z.unknown().nullish().transform((value) => value ?? undefined),
+  responseFormat: z.unknown(),
 }).passthrough();
 
 export function managementOperations(db: Db, config: AppConfig, paypal: PayPalProvider, ai: AiProvider,

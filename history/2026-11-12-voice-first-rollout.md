@@ -22,6 +22,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - The browser adapter also restores retained thought signatures into AG Studio's rebuilt conversation history before each follow-up request, avoiding reliance on Cloud Run instance affinity.
 - Added safe AG Studio provider-failure classification (without provider text or request data) to distinguish Vertex tool-protocol errors from transient quota errors in production logs.
 - Restored Gemini's required parallel tool-call shape after AG Studio interleaves each call with its result: all calls now precede all ordered responses, while sequential signed calls remain separate steps.
+- Allowed AG Studio's evolving built-in tool metadata through the bounded API boundary, then validate and filter it before Vertex. Seeded local tool calls now use Gemini's documented signature-validator marker, and the dashboard exposes a Stop control that cancels an active parent run and its delegates.
 
 ## Checks
 
@@ -33,6 +34,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Cloud Run revision `yatalk-dev-preview-00028-v6v` passed `/api/health` with the Gemini parallel-call ordering fix.
 - Focused Gemini tests and the production build passed for the checkout lock and AG Studio fallback.
 - Focused Gemini tests and the production build passed for parallel thought-signature turn reconstruction.
+- Focused tenant and Gemini tests plus the production build passed for the Studio metadata, seeded-call, and cancellation updates.
 
 ## Next steps
 

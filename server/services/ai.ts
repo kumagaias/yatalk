@@ -119,6 +119,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const thoughtSignatureTtlMs = 15 * 60_000;
+const skipThoughtSignatureValidator = "skip_thought_signature_validator";
 const thoughtSignatures = new Map<string, { value: string; expiresAt: number }>();
 
 function rememberThoughtSignature(callId: string, value: string): void {
@@ -191,10 +192,11 @@ function conversationForGemini(input: AgAiConversationItem[]): { contents: Conte
         const decoded: unknown = JSON.parse(candidate.arguments);
         if (isRecord(decoded)) args = decoded;
       } catch { /* Leave malformed model history as an empty argument object. */ }
-      const thoughtSignature = typeof candidate.thoughtSignature === "string" ? candidate.thoughtSignature : savedThoughtSignature(candidate.callId);
+      const returnedSignature = typeof candidate.thoughtSignature === "string" ? candidate.thoughtSignature : savedThoughtSignature(candidate.callId);
       // Gemini returns a signature on the first parallel call but on every sequential step.
       // AG Studio interleaves calls and results, so start a new step only after a completed one.
-      if (thoughtSignature && pendingResponses.size > 0) flushToolTurn();
+      if (returnedSignature && pendingResponses.size > 0) flushToolTurn();
+      const thoughtSignature = returnedSignature ?? skipThoughtSignatureValidator;
       callNames.set(candidate.callId, candidate.name);
       pendingCalls.push({ callId: candidate.callId, part: { functionCall: { id: candidate.callId, name: candidate.name, args },
         ...(thoughtSignature ? { thoughtSignature } : {}) } });
@@ -268,15 +270,19 @@ export class GeminiVertex implements AiProvider {
 
   async runStudioTurn(request: AgLlmRequest): Promise<AgLlmResponse> {
     const { contents, systemMessages } = conversationForGemini(request.input);
-    const declarations: FunctionDeclaration[] = (request.tools ?? [])
-      .filter((tool) => tool.kind === undefined || tool.kind === "client")
-      .map(({ name, description, parameters }) => ({ name, description,
-        parametersJsonSchema: isRecord(parameters) ? parameters : { type: "object", properties: {} } }));
+    const declarations: FunctionDeclaration[] = (request.tools ?? []).flatMap((tool) => {
+      if (!isRecord(tool) || typeof tool.name !== "string" || typeof tool.description !== "string") return [];
+      if (tool.kind !== undefined && tool.kind !== "client") return [];
+      return [{ name: tool.name, description: tool.description,
+        parametersJsonSchema: isRecord(tool.parameters) ? tool.parameters : { type: "object", properties: {} } }];
+    });
+    const requestedTool = isRecord(request.toolChoice) && typeof request.toolChoice.name === "string" ? request.toolChoice.name : undefined;
+    const forcedTool = requestedTool && declarations.some(({ name }) => name === requestedTool) ? requestedTool : undefined;
     const toolConfig = declarations.length === 0 ? undefined : {
       functionCallingConfig: {
         mode: request.toolChoice === "none" ? FunctionCallingConfigMode.NONE :
-          request.toolChoice === "required" || typeof request.toolChoice === "object" ? FunctionCallingConfigMode.ANY : FunctionCallingConfigMode.AUTO,
-        ...(typeof request.toolChoice === "object" ? { allowedFunctionNames: [request.toolChoice.name] } : {}),
+          request.toolChoice === "required" || forcedTool ? FunctionCallingConfigMode.ANY : FunctionCallingConfigMode.AUTO,
+        ...(forcedTool ? { allowedFunctionNames: [forcedTool] } : {}),
       },
     };
     const systemInstruction = [
@@ -284,9 +290,8 @@ export class GeminiVertex implements AiProvider {
       request.instructions,
       studioSafetyInstruction,
     ].filter(Boolean).join("\n\n");
-    const responseFormat = request.responseFormat.type === "json" ? {
-      responseMimeType: "application/json",
-      responseJsonSchema: request.responseFormat.schema,
+    const responseFormat = isRecord(request.responseFormat) && request.responseFormat.type === "json" && isRecord(request.responseFormat.schema) ? {
+      responseMimeType: "application/json", responseJsonSchema: request.responseFormat.schema,
     } : {};
     const params: GenerateContentParameters = {
       model: this.model,
