@@ -95,6 +95,7 @@ export type ChatResponse = {
 export type CreateOrderResponse = {
   orderId: string;
   paypalOrderId?: string;
+  approveUrl?: string | null;
   state?: OrderState;
   expiresAt?: string;
   totalMinor?: number;

@@ -21,7 +21,7 @@ const refundInFlight = new Set<string>();
 function orderReceipt(order: OrderRow) {
   return { orderId: order.id, state: order.state, totalMinor: order.total_minor,
     currency: order.currency,
-    pickupCode: order.state === "paid" || order.state === "collected" ? order.pickup_code : null };
+    pickupCode: order.state === "paid" || order.state === "collected" ? order.pickup_number ?? order.pickup_code : null };
 }
 
 async function paypalItems(db: Db, order: OrderRow) {
@@ -82,8 +82,12 @@ export async function createOrRetryOrder(db: Db, paypal: PayPalProvider, input: 
       throw new ApiError(409, "idempotency_conflict", "This request key was already used with different cart versions.");
     }
     order = existing;
-    if (order.state === "pending_payment") return { status: 200, body: { orderId: order.id, paypalOrderId: order.paypal_order_id,
-      expiresAt: order.expires_at, totalMinor: order.total_minor, currency: order.currency } };
+    if (order.state === "pending_payment") {
+      const providerOrder = order.paypal_order_id ? await paypal.getOrder(order.paypal_order_id) : null;
+      return { status: 200, body: { orderId: order.id, paypalOrderId: order.paypal_order_id,
+        approveUrl: order.paypal_approve_url ?? providerOrder?.approveUrl ?? null, expiresAt: order.expires_at,
+        totalMinor: order.total_minor, currency: order.currency } };
+    }
     if (["paid", "collected", "refunded", "refund_unknown", "capture_unknown", "cancelled", "expired", "create_failed"].includes(order.state)) {
       return { status: 200, body: orderReceipt(order) };
     }
@@ -117,8 +121,9 @@ export async function createOrRetryOrder(db: Db, paypal: PayPalProvider, input: 
       await failOrderCreate(db, order.id, true, shopId);
       return { status: 202, body: { orderId: order.id, state: "create_unknown" } };
     }
-    const saved = await setCreatedOrder(db, order.id, created.id, shopId);
+    const saved = await setCreatedOrder(db, order.id, created.id, shopId, created.approveUrl);
     return { status: isNew ? 201 : 200, body: { orderId: saved.id, paypalOrderId: created.id,
+      approveUrl: created.approveUrl,
       expiresAt: saved.expires_at, totalMinor: saved.total_minor, currency: saved.currency } };
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -200,6 +205,14 @@ export async function readOwnedOrder(db: Db, sessionHash: string, orderId: strin
   return orderReceipt(order);
 }
 
+export async function capturePayPalReturn(db: Db, paypal: PayPalProvider, paypalOrderId: string, requestId: string): Promise<Record<string, unknown>> {
+  const order = await findOrderByPaypalOrderId(db, paypalOrderId);
+  if (!order) throw new ApiError(404, "order_not_found", "Order was not found.");
+  const receipt = await captureOrder(db, paypal, order.session_hash, order.id, order.shop_id, requestId);
+  const items = (await listOrderLines(db, order.id, order.shop_id)).map((line) => ({ name: line.display_name, quantity: line.quantity }));
+  return { ...receipt, items };
+}
+
 export async function cancelOwnedOrder(db: Db, sessionHash: string, orderId: string, shopId = DEFAULT_SHOP_ID): Promise<Record<string, unknown>> {
   const order = await findOrder(db, orderId, shopId);
   if (!order || order.session_hash !== sessionHash) throw new ApiError(404, "order_not_found", "Order was not found.");
@@ -251,9 +264,12 @@ export async function processPaypalWebhook(db: Db, paypal: PayPalProvider, heade
   const root = webhookObject(event);
   if (typeof root.id !== "string" || typeof root.event_type !== "string") throw new ApiError(400, "webhook_invalid", "Webhook event is invalid.");
   const resource = nested(root.resource);
-  if (db.backend === "firestore") return processFirestoreWebhook(db, root.id, root.event_type, resource);
+  if (db.backend === "firestore") return processFirestoreWebhook(db, paypal, root.id, root.event_type, resource);
   const existed = db.prepare("SELECT 1 FROM webhook_events WHERE id = ?").get(root.id);
   if (existed) return "duplicate";
+  if (root.event_type === "CHECKOUT.ORDER.APPROVED" && typeof resource.id === "string") {
+    await captureApprovedOrder(db, paypal, resource.id);
+  }
   const now = new Date().toISOString();
   const transaction = db.transaction(() => {
     if (root.event_type === "PAYMENT.CAPTURE.COMPLETED") {
@@ -313,10 +329,28 @@ export async function processPaypalWebhook(db: Db, paypal: PayPalProvider, heade
   return "processed";
 }
 
-async function processFirestoreWebhook(db: FirestoreDb, eventId: string, eventType: string, resource: Record<string, unknown>): Promise<"processed" | "duplicate"> {
+async function captureApprovedOrder(db: Db, paypal: PayPalProvider, paypalOrderId: string): Promise<void> {
+  const linked = await findOrderByPaypalOrderId(db, paypalOrderId);
+  if (!linked) return;
+  await normalizeExpiredOrders(db, linked.shop_id);
+  const order = await findOrder(db, linked.id, linked.shop_id);
+  if (!order || order.state !== "pending_payment" && order.state !== "capture_unknown") return;
+  try {
+    await captureOrder(db, paypal, order.session_hash, order.id, order.shop_id, "paypal_webhook");
+  } catch {
+    const latest = await findOrder(db, order.id, order.shop_id);
+    if (!latest || ["paid", "collected", "expired", "cancelled", "refunded"].includes(latest.state)) return;
+    throw new ApiError(503, "webhook_capture_pending", "The approved PayPal order could not be captured yet. Retry this webhook.");
+  }
+}
+
+async function processFirestoreWebhook(db: FirestoreDb, paypal: PayPalProvider, eventId: string, eventType: string, resource: Record<string, unknown>): Promise<"processed" | "duplicate"> {
   const alreadyProcessed = await db.firestoreStore.get("webhookEvents", eventId);
   if (alreadyProcessed) return "duplicate";
-  if (eventType === "PAYMENT.CAPTURE.COMPLETED") {
+  if (eventType === "CHECKOUT.ORDER.APPROVED") {
+    const paypalOrderId = typeof resource.id === "string" ? resource.id : "";
+    if (paypalOrderId) await captureApprovedOrder(db, paypal, paypalOrderId);
+  } else if (eventType === "PAYMENT.CAPTURE.COMPLETED") {
     const related = nested(nested(resource.supplementary_data).related_ids);
     const paypalOrderId = typeof related.order_id === "string" ? related.order_id : "";
     const order = paypalOrderId ? await findOrderByPaypalOrderId(db, paypalOrderId) : undefined;
@@ -383,7 +417,7 @@ export async function adminOrder(db: Db, orderId: string, shopId = DEFAULT_SHOP_
   if (!order) throw new ApiError(404, "order_not_found", "Order was not found.");
   return { orderId: order.id, state: order.state, totalMinor: order.total_minor,
     currency: order.currency,
-    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickup_code } : {}),
+    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickup_number ?? order.pickup_code } : {}),
     createdAt: order.created_at,
     expiresAt: order.expires_at, restocked: !!order.restock_applied_at,
     refundRestockRequested: order.refund_restock_requested === null ? null : order.refund_restock_requested === 1 };

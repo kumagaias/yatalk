@@ -6,7 +6,7 @@ export function ShopQRCodeCard({ shopSlug, ownerSlug }: { shopSlug: string; owne
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState("");
   const shopPath = ownerSlug ? `/${encodeURIComponent(ownerSlug)}/${encodeURIComponent(shopSlug)}` : `/shops/${encodeURIComponent(shopSlug)}`;
-  const shopUrl = new URL(shopPath, window.location.origin).toString();
+  const shopUrl = new URL(`${shopPath}?counter=1`, window.location.origin).toString();
 
   const copyLink = async () => {
     setCopyError("");
@@ -28,11 +28,11 @@ export function ShopQRCodeCard({ shopSlug, ownerSlug }: { shopSlug: string; owne
   return (
     <section className="dashboard-card shop-qr-card" aria-labelledby="shop-qr-heading">
       <div className="section-heading"><div><p className="eyebrow">Share your storefront</p><h2 id="shop-qr-heading"><QrCode size={19} aria-hidden="true" />Shop QR code</h2></div></div>
-      <p>Customers can scan this code to open your menu, order by voice or chat, and continue to PayPal checkout.</p>
+      <p>Place this at your counter. Customers can scan it to open your menu, order by voice or chat, and continue to PayPal checkout.</p>
       <div className="shop-qr-code"><QRCodeSVG value={shopUrl} size={200} level="Q" marginSize={3} title={`QR code for ${shopSlug}`} /></div>
       <a className="shop-qr-link" href={shopUrl}>{shopUrl}</a>
       <button className="button button-secondary full-width" type="button" onClick={() => void copyLink()}>
-        {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}{copied ? "Link copied" : "Copy shop link"}
+        {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}{copied ? "Link copied" : "Copy counter link"}
       </button>
       {copyError && <p className="shop-qr-error" role="status">{copyError}</p>}
     </section>

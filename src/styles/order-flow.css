@@ -1,0 +1,96 @@
+.market-main { padding-top: 20px; }
+.workspace-grid { margin-top: 10px; }
+.customer-shop-cover { margin-bottom: 12px; aspect-ratio: 16 / 6; }
+.customer-shop-cover img { height: 100%; max-height: none; }
+.product-carousel { margin: 0 0 16px; }
+.product-carousel-rail { display: flex; gap: 10px; overflow-x: auto; padding: 2px 1px 9px; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.product-carousel-rail::-webkit-scrollbar { display: none; }
+.product-carousel-card { min-width: min(250px, 74vw); display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 13px 14px; scroll-snap-align: start; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 4px 12px rgb(24 51 49 / 5%); }
+.product-carousel-card div { display: grid; gap: 2px; min-width: 0; }
+.product-carousel-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
+.product-carousel-card span { color: var(--tomato-dark); font-weight: 750; }
+.product-carousel-card button { width: 44px; height: 44px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--paper); cursor: pointer; }
+.product-carousel-card button:hover:not(:disabled) { background: var(--soft-yellow); }
+.customer-order-layout { display: grid; grid-template-columns: minmax(0, 7fr) minmax(360px, 5fr); gap: 26px; align-items: start; margin-bottom: 28px; }
+.menu-drawer { min-width: 0; }
+.menu-drawer-close, .menu-drawer-backdrop { display: none; }
+.chat-panel { min-width: 0; }
+.chat-heading-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.speech-toggle, .icon-button { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--ink); background: var(--paper); cursor: pointer; }
+.speech-toggle.active { color: white; border-color: var(--success); background: var(--success); }
+.chat-thread { min-height: 90px; max-height: 300px; }
+.chat-message { position: relative; }
+.chat-message p { max-width: min(88%, 610px); font-size: clamp(17px, 2vw, 21px); }
+.chat-speak-button { width: 38px; height: 38px; display: grid; place-items: center; flex: 0 0 auto; border: 0; border-radius: 50%; color: var(--muted); background: transparent; cursor: pointer; }
+.chat-speak-button:hover { color: var(--ink); background: var(--soft-green); }
+.voice-conversation { display: grid; gap: 5px; margin: 6px 0; }
+.voice-session-button { width: 100%; min-height: 62px; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 18px; border: 0; border-radius: 12px; color: white; background: #28594c; font-size: 20px; font-weight: 750; cursor: pointer; }
+.voice-session-button:hover { background: #1f4d41; }
+.voice-session-button.active { background: var(--tomato); }
+.voice-session-button:disabled { opacity: .55; cursor: not-allowed; }
+.voice-status, .voice-error { font-size: 16px; }
+.manual-entry-toggle { width: 100%; }
+.paypal-payment-qr { display: grid; justify-items: center; gap: 8px; padding: 13px 8px; border-radius: 10px; background: white; text-align: center; }
+.paypal-payment-qr > svg { width: min(220px, 62vw); height: auto; }
+.paypal-payment-qr > strong { font-family: var(--font-heading); font-size: 29px; }
+.paypal-payment-qr > span { color: var(--muted); font-size: 14px; }
+.paypal-payment-link { width: 100%; overflow-wrap: anywhere; color: var(--green-dark); font-size: 12px; line-height: 1.35; text-decoration: underline; }
+.paypal-area > div:not(.paypal-payment-qr) { display: flex; justify-content: center; width: 100%; }
+.paypal-area > div:not(.paypal-payment-qr) > div { width: min(100%, 420px); }
+.checkout-order-items, .counter-order-items { width: 100%; list-style: none; margin: 0; padding: 0; }
+.checkout-order-items li, .counter-order-items li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); text-align: left; }
+.checkout-order-items li:last-child, .counter-order-items li:last-child { border-bottom: 0; }
+.checkout-order-items strong, .counter-order-items strong { white-space: nowrap; }
+.counter-order-qr-screen { width: min(620px, 100%); display: grid; justify-items: center; gap: 14px; margin: 26px auto 46px; padding: 28px; border: 1px solid var(--line); border-radius: var(--radius-large); background: var(--surface); box-shadow: var(--shadow-card); text-align: center; }
+.counter-order-qr-screen h1 { margin: -8px 0 2px; font-family: var(--font-heading); font-size: clamp(38px, 5vw, 58px); font-weight: 500; }
+.counter-shop-qr { padding: 15px; border-radius: 14px; background: white; }
+.counter-shop-qr svg { display: block; width: min(300px, 68vw); height: auto; }
+.counter-order-qr-screen > span { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 700; }
+.counter-order-qr-screen > a { max-width: 100%; overflow-wrap: anywhere; color: var(--success); font-size: 13px; }
+.counter-queue { margin-bottom: 22px; }
+.counter-queue .section-heading { align-items: flex-start; }
+.counter-queue-actions { display: flex; align-items: center; gap: 8px; }
+.counter-queue-actions .text-button { font-size: 14px; }
+.counter-order-list { display: grid; gap: 12px; }
+.counter-order-card { display: grid; grid-template-columns: minmax(0, 1fr) 175px; align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fffefa; }
+.counter-order-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 13px; }
+.counter-order-top strong { color: var(--ink); font-size: 16px; }
+.counter-order-items { margin: 7px 0; font-size: 17px; }
+.counter-order-total { display: block; margin-top: 7px; color: var(--tomato-dark); font-family: var(--font-heading); font-size: 24px; }
+.counter-order-qr { display: grid; justify-items: center; gap: 4px; padding: 8px; border-radius: 9px; background: white; }
+.counter-order-qr svg { max-width: 100%; height: auto; }
+.counter-order-qr span { font-size: 13px; font-weight: 750; }
+.counter-order-note { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.counter-queue-updated { margin: 10px 0 0; color: var(--muted); font-size: 12px; text-align: right; }
+
+@media (max-width: 720px) {
+  .market-main { padding-top: 12px; }
+  .customer-shop-cover { margin: 0 -1px 11px; aspect-ratio: 16 / 7; border-radius: 14px; }
+  .customer-order-layout { display: block; margin-bottom: 18px; }
+  .menu-drawer { width: min(88vw, 420px); height: 100dvh; padding: 18px 16px 38px; position: fixed; z-index: 20; top: 0; right: 0; overflow-y: auto; background: var(--paper); box-shadow: -12px 0 26px rgb(24 51 49 / 18%); transform: translateX(105%); transition: transform .2s ease; }
+  .menu-drawer.open { transform: translateX(0); }
+  .menu-drawer-close { min-height: 44px; display: inline-flex; align-items: center; margin: 0 0 15px; border: 0; color: var(--muted); background: transparent; font-weight: 750; text-decoration: underline; }
+  .menu-drawer-backdrop { position: fixed; z-index: 19; inset: 0; border: 0; background: rgb(24 51 49 / 40%); opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+  .menu-drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+  .customer-order-layout .market-sidebar { position: static; display: flex; gap: 14px; }
+  .workspace-grid { gap: 14px; }
+  .chat-thread { min-height: 70px; max-height: 260px; }
+  .chat-panel { grid-row: 1; }
+  .chat-message p { max-width: calc(100% - 72px); font-size: 19px; }
+  .voice-session-button { min-height: 68px; font-size: 21px; }
+  .counter-order-card { grid-template-columns: minmax(0, 1fr) 132px; gap: 8px; padding: 10px; }
+  .counter-order-qr { padding: 4px; }
+  .counter-order-qr svg { width: 120px; }
+  .counter-order-qr-screen { margin-top: 10px; padding: 22px 15px 26px; }
+  .counter-queue-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .counter-queue-actions .text-button { font-size: 13px; }
+}
+
+@media (max-width: 420px) {
+  .counter-queue .section-heading { flex-direction: column; }
+  .counter-queue-actions { width: 100%; justify-content: flex-start; }
+  .counter-order-card { grid-template-columns: 1fr; }
+  .counter-order-qr { grid-row: 1; }
+  .counter-order-qr svg { width: 170px; }
+  .counter-order-qr-screen { padding-right: 10px; padding-left: 10px; }
+}

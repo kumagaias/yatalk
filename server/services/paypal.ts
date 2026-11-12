@@ -8,6 +8,7 @@ export interface PayPalOrderResult { id: string; status: string; approveUrl: str
 export interface PayPalCaptureResult {
   orderId: string; orderStatus: string; referenceId: string | null; customId: string | null;
   captureId: string | null; captureStatus: string | null; currency: string | null; amountMinor: number | null;
+  approveUrl?: string | null;
 }
 export interface PayPalRefundResult { refundId: string | null; status: string; currency: string | null; amountMinor: number | null }
 export interface WebhookHeaders {
@@ -41,6 +42,19 @@ function firstPurchaseUnit(body: unknown): JsonRecord {
   return record(array(record(body).purchase_units)[0]);
 }
 
+function approvalUrl(body: unknown): string | null {
+  const links = array(record(body).links).map(record);
+  const candidate = links.find((link) => link.rel === "approve" || link.rel === "payer-action")?.href;
+  if (typeof candidate !== "string") return null;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "https:" && (url.hostname === "paypal.com" || url.hostname.endsWith(".paypal.com"))
+      ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function extractCapture(orderId: string, body: unknown): PayPalCaptureResult {
   const root = record(body);
   const unit = firstPurchaseUnit(body);
@@ -51,7 +65,7 @@ function extractCapture(orderId: string, body: unknown): PayPalCaptureResult {
     orderStatus: string(root.status) ?? "UNKNOWN",
     referenceId: string(unit.reference_id), customId: string(unit.custom_id) ?? string(capture.custom_id),
     captureId: string(capture.id), captureStatus: string(capture.status),
-    currency: amount.currency, amountMinor: amount.minor,
+    currency: amount.currency, amountMinor: amount.minor, approveUrl: approvalUrl(body),
   };
 }
 
@@ -122,12 +136,15 @@ export class PayPalClient implements PayPalProvider {
           unit_amount: { currency_code: input.currency, value: toValue(item.unitAmount) },
         })),
       }],
-      payment_source: undefined,
+      application_context: {
+        return_url: new URL("/payment/return", this.config.appOrigin).toString(),
+        cancel_url: new URL("/payment/cancel", this.config.appOrigin).toString(),
+        user_action: "PAY_NOW",
+        shipping_preference: "NO_SHIPPING",
+      },
     }, input.requestId);
-    const links = array(payload.links).map(record);
-    const approveUrl = links.find((link) => link.rel === "approve" || link.rel === "payer-action");
     if (typeof payload.id !== "string") throw new ProviderError("paypal", "create_response", false);
-    return { id: payload.id, status: string(payload.status) ?? "UNKNOWN", approveUrl: string(approveUrl?.href) };
+    return { id: payload.id, status: string(payload.status) ?? "UNKNOWN", approveUrl: approvalUrl(payload) };
   }
 
   async getOrder(orderId: string): Promise<PayPalCaptureResult> {

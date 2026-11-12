@@ -45,6 +45,26 @@ resource "google_firestore_index" "orders_expiry" {
   }
 }
 
+resource "google_firestore_index" "orders_pending_payment" {
+  project     = var.project_id
+  database    = google_firestore_database.default.name
+  collection  = "orders"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "shopId"
+    order      = "ASCENDING"
+  }
+  fields {
+    field_path = "state"
+    order      = "ASCENDING"
+  }
+  fields {
+    field_path = "createdAt"
+    order      = "ASCENDING"
+  }
+}
+
 resource "google_firestore_index" "orders_daily_captured" {
   project     = var.project_id
   database    = google_firestore_database.default.name

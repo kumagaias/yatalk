@@ -14,9 +14,12 @@ type Props = {
   onClear: () => void;
   onRetry: () => void;
   onCart: (cart: Cart) => void;
+  kioskMode?: boolean;
+  confirmOrderKey?: number;
+  onCheckoutActiveChange?: (active: boolean) => void;
 };
 
-export function CartPanel({ cart, config, busy, error, onChange, onClear, onRetry, onCart }: Props) {
+export function CartPanel({ cart, config, busy, error, onChange, onClear, onRetry, onCart, kioskMode = false, confirmOrderKey = 0, onCheckoutActiveChange }: Props) {
   return (
     <section className="panel cart-panel" aria-labelledby="cart-heading">
       <div className="panel-heading cart-heading">
@@ -49,7 +52,8 @@ export function CartPanel({ cart, config, busy, error, onChange, onClear, onRetr
           {cart.items.some((item) => item.quantity > item.available) && <p className="stock-note">One or more quantities exceed current availability. Update your order before checkout.</p>}
         </>
       )}
-      {cart && <CheckoutPanel config={config} cart={cart} cartBusy={busy} onCart={onCart} />}
+      {cart && <CheckoutPanel config={config} cart={cart} cartBusy={busy} onCart={onCart} kioskMode={kioskMode}
+        confirmOrderKey={confirmOrderKey} onActiveChange={onCheckoutActiveChange} />}
     </section>
   );
 }

@@ -1,14 +1,18 @@
-import { ArrowDown, ArrowUpRight, CircleHelp, RefreshCw } from "lucide-react";
+import { ArrowUpRight, CircleHelp, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import type { AppConfig, Cart, CartLine, MenuResponse, Product } from "../types";
 import { ApiError, del, get, post } from "../lib/api";
 import { createSerialMutationQueue } from "../lib/serial-mutation-queue";
 import { BrandHeader } from "../components/BrandHeader";
 import { ChatPanel } from "../components/ChatPanel";
 import { CartPanel } from "../components/CartPanel";
+import { CounterOrderQr } from "../components/CounterOrderQr";
+import { ShopCover } from "../components/ShopCover";
+import { ProductCarousel } from "../components/ProductCarousel";
 import { MenuSection } from "../components/MenuSection";
 import { Loading } from "../components/Feedback";
+import { useScreenWakeLock } from "../lib/use-screen-wake-lock";
 
 type ChatHistoryItem = { role: "user" | "assistant"; content: string };
 
@@ -18,11 +22,13 @@ export function MarketPage() {
 }
 
 function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?: string }) {
+  const location = useLocation();
+  const counterMode = new URLSearchParams(location.search).get("counter") === "1";
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [cart, setCart] = useState<Cart | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [eventName, setEventName] = useState("Little Harbor Market");
-  const [shopImageMissing, setShopImageMissing] = useState(false);
+  const [confirmOrderKey, setConfirmOrderKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [menuError, setMenuError] = useState("");
   const [configError, setConfigError] = useState("");
@@ -30,8 +36,11 @@ function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?
   const [cartMutationBusy, setCartMutationBusy] = useState(false);
   const [productBusy, setProductBusy] = useState<string | null>(null);
   const [cartBusyError, setCartBusyError] = useState("");
+  const [checkoutActive, setCheckoutActive] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const cartRef = useRef<Cart | null>(null);
   const mutationQueueRef = useRef(createSerialMutationQueue());
+  useScreenWakeLock(counterMode);
 
   const setCurrentCart = useCallback((next: Cart) => {
     const latest = cartRef.current;
@@ -81,6 +90,10 @@ function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?
   }, [loadCart, loadMenu]);
 
   useEffect(() => { void loadAll(); }, [loadAll]);
+  useEffect(() => {
+    if (!checkoutActive || confirmOrderKey === 0) return;
+    window.requestAnimationFrame(() => document.getElementById("checkout-panel")?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }, [checkoutActive, confirmOrderKey]);
 
   const refreshCartAndMenu = useCallback(async () => {
     const [cartResult, menuResult] = await Promise.allSettled([loadCart(), loadMenu()]);
@@ -129,6 +142,7 @@ function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?
     try {
       const result = await post<{ reply: string; clarification: string | null; cart: Cart }>("/api/chat", {
         message, history,
+        replyLanguage: document.documentElement.lang.toLowerCase().startsWith("ja") ? "ja" : "en",
         cartVersion: current.cartVersion,
         catalogRevision: current.catalogRevision,
       });
@@ -149,48 +163,48 @@ function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?
     setCartBusyError("");
     void refreshCartAndMenu();
   };
+  const finishVoiceOrder = useCallback(() => {
+    if (!cartRef.current?.items.length) return false;
+    setConfirmOrderKey((value) => value + 1);
+    return true;
+  }, []);
   const currentName = config?.eventName || eventName;
-  const shopImageUrl = ownerSlug && shopSlug
-    ? `/api/v1/owners/${encodeURIComponent(ownerSlug)}/shops/${encodeURIComponent(shopSlug)}/image`
-    : shopSlug ? `/api/v1/shops/${encodeURIComponent(shopSlug)}/image` : "";
+  const marketUrl = ownerSlug && shopSlug
+    ? `/${encodeURIComponent(ownerSlug)}/${encodeURIComponent(shopSlug)}`
+    : shopSlug ? `/shops/${encodeURIComponent(shopSlug)}` : "/shops/little-harbor-market";
   const dashboardUrl = ownerSlug && shopSlug
     ? `/dashboard/${encodeURIComponent(ownerSlug)}/${encodeURIComponent(shopSlug)}`
     : shopSlug ? `/dashboard/shops/${encodeURIComponent(shopSlug)}` : "/dashboard/login";
+  const shopOrderUrl = new URL(marketUrl, window.location.origin).toString();
 
   return (
-    <div className="market-page">
-      <BrandHeader eventName={currentName} />
+    <div className={`market-page${counterMode ? " counter-mode" : ""}`}>
+      <BrandHeader eventName={currentName} counterPath={counterMode ? marketUrl : `${marketUrl}?counter=1`} counterMode={counterMode} shopperMode={!counterMode} menuOpen={menuOpen} onMenuOpen={counterMode ? undefined : () => setMenuOpen(true)} />
       <main className="market-main">
-        {shopImageUrl && !shopImageMissing && <div className="shop-cover"><img src={shopImageUrl} alt={`${currentName} storefront`} onError={() => setShopImageMissing(true)} /></div>}
-        <section className="hero" aria-labelledby="hero-heading">
-          <div className="hero-copy">
-            <p className="hero-kicker"><span />Order from your neighborhood stall</p>
-            <h1 className="hero-shop-name" id="hero-heading">{currentName}</h1>
-            <p className="hero-description">Choose from today’s menu, order by voice or chat, and pay securely with PayPal. We’ll have it ready at the stall.</p>
-            <a className="hero-action" href="#market-menu">Explore today’s menu <ArrowDown size={16} aria-hidden="true" /></a>
-          </div>
-          <div className="hero-note" aria-label="Market note">
-            <span className="hero-sun" aria-hidden="true">☼</span>
-            <div className="hero-note-top"><span>GOOD THINGS</span><span>✳</span></div>
-            <p>Made here.<br />Shared here.</p>
-            <span className="hero-note-bottom">A TASTE OF THE NEIGHBORHOOD</span>
-          </div>
-          <span className="hero-scribble" aria-hidden="true">✳</span>
-        </section>
         {loading && !products.length && <Loading>Opening the market…</Loading>}
         {menuError && <div className="page-alert" role="alert"><CircleHelp size={18} aria-hidden="true" /><span>{menuError}</span><button className="text-button" onClick={() => void loadAll()}><RefreshCw size={15} aria-hidden="true" />Retry</button></div>}
         {configError && <div className="setup-banner" role="status"><CircleHelp size={17} aria-hidden="true" />{configError}</div>}
-        <div className="workspace-grid">
-          <MenuSection products={products} loading={loading && products.length === 0} busy={productBusy} mutationBusy={cartMutationBusy || cart === null} onAdd={addProduct} />
-          <aside className="market-sidebar" aria-label="Chat and order summary">
-            <ChatPanel cart={cart} mutationBusy={cartMutationBusy} onSend={sendChat} products={products} />
+        {counterMode ? <CounterOrderQr shopName={currentName} shopUrl={shopOrderUrl} /> : <>
+          <ShopCover shopName={currentName} shopSlug={shopSlug ?? "little-harbor-market"} ownerSlug={ownerSlug} />
+          <ProductCarousel products={products} disabled={checkoutActive || cartMutationBusy || cart === null} onAdd={addProduct} />
+          <div className="customer-order-layout">
+            <button className={`menu-drawer-backdrop${menuOpen ? " open" : ""}`} type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
+            <aside className={`menu-drawer${menuOpen ? " open" : ""}`} id="market-menu-drawer" aria-label="Menu">
+              <button className="menu-drawer-close" type="button" onClick={() => setMenuOpen(false)}>Close</button>
+              <MenuSection products={products} loading={loading && products.length === 0} busy={productBusy} mutationBusy={checkoutActive || cartMutationBusy || cart === null} onAdd={addProduct} />
+            </aside>
+            <aside className="market-sidebar" aria-label="Voice order and checkout">
+            <ChatPanel cart={cart} mutationBusy={cartMutationBusy} orderLocked={checkoutActive} onSend={sendChat}
+              voiceConversation onFinishOrder={finishVoiceOrder} />
             <CartPanel
-              cart={cart} config={config} busy={cartMutationBusy || loading} error={cartError || cartBusyError}
-              onChange={updateLine} onClear={clearCart} onRetry={retryCart} onCart={setCurrentCart}
+              cart={cart} config={config} busy={checkoutActive || cartMutationBusy || loading} error={cartError || cartBusyError}
+              onChange={updateLine} onClear={clearCart} onRetry={retryCart} onCart={setCurrentCart} kioskMode={counterMode}
+              confirmOrderKey={confirmOrderKey} onCheckoutActiveChange={setCheckoutActive}
             />
-          </aside>
-        </div>
-        <footer className="market-footer"><span>{currentName}</span><Link to={dashboardUrl}>For the people behind the stall <ArrowUpRight size={14} aria-hidden="true" /></Link><span>Order with care. Pick up with a smile.</span></footer>
+            </aside>
+          </div>
+          <footer className="market-footer"><span>{currentName}</span><Link to={dashboardUrl}>For the people behind the stall <ArrowUpRight size={14} aria-hidden="true" /></Link><span>Order with care. Pick up with a smile.</span></footer>
+        </>}
       </main>
     </div>
   );

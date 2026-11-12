@@ -4,12 +4,13 @@ import type { FirestoreDocument } from "./firestore-store.js";
 import { listProducts } from "./inventory.js";
 import type { OrderRow } from "./order-state.js";
 import { eventDayBounds, eventDayWindowBounds, type OrganizerFactsOptions } from "./analytics.js";
+import { dailySalesTrend } from "./sales-trend.js";
 
 type ShopDoc = FirestoreDocument & { currency: string };
 type LineDoc = FirestoreDocument & { product_id: string; display_name: string; quantity: number };
 type OrderDoc = FirestoreDocument & {
   id: string; shopId: string; state: OrderRow["state"]; totalMinor: number; capturedAt: string | null;
-  createdAt: string; expiresAt: string; pickupCode: string | null; currency: string; items: LineDoc[];
+  createdAt: string; expiresAt: string; pickupCode: string | null; pickupNumber?: string | null; currency: string; items: LineDoc[];
 };
 
 function wallClockParts(date: Date, timeZone: string): { year: number; month: number; day: number } {
@@ -63,6 +64,7 @@ export async function organizerFacts(db: FirestoreDb, timeZone: string, now = ne
     products: products.map(({ id, name, stockOnHand, reserved, available, priceMinor }) => ({ id, name, stockOnHand, reserved, available, priceMinor })),
     unitsSold: [...units.values()].sort((left, right) => right.units_sold - left.units_sold || left.name.localeCompare(right.name)),
     unitsSoldLast7Days: salesWindow ? [...weeklyUnits.values()].sort((left, right) => right.units_sold - left.units_sold || left.name.localeCompare(right.name)) : [],
+    salesTrend: salesWindow ? dailySalesTrend(now, timeZone, 7, captured.map((order) => ({ capturedAt: order.capturedAt!, totalMinor: order.totalMinor, state: order.state }))) : [],
   };
 }
 
@@ -73,7 +75,7 @@ export async function organizerSummary(db: FirestoreDb, timeZone: string, shopId
   ]);
   const orders = rows.map((order) => ({
     orderId: order.id, state: order.state, totalMinor: order.totalMinor, currency: order.currency,
-    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickupCode } : {}),
+    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickupNumber ?? order.pickupCode } : {}),
     createdAt: order.createdAt, items: (order.items ?? []).map((item) => ({ name: item.display_name, quantity: item.quantity })),
   }));
   return {

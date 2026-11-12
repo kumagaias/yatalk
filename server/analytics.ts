@@ -3,6 +3,7 @@ import { DEFAULT_SHOP_ID } from "./database.js";
 import { listProducts } from "./inventory.js";
 import { listOrderLines, type OrderRow } from "./order-state.js";
 import * as firestoreAnalytics from "./firestore-analytics.js";
+import { dailySalesTrend } from "./sales-trend.js";
 
 function wallClockParts(date: Date, timeZone: string): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(date);
@@ -75,6 +76,8 @@ function organizerFactsSqlite(db: SqliteDb, timeZone: string, now = new Date(), 
     FROM order_items oi JOIN orders o ON o.id = oi.order_id
     WHERE o.shop_id = ? AND oi.shop_id = ? AND o.captured_at >= ? AND o.captured_at < ? AND o.state IN ('paid', 'collected', 'refund_unknown')
     GROUP BY oi.product_id ORDER BY units_sold DESC, name COLLATE NOCASE`).all(shopId, shopId, salesWindow.start, salesWindow.end) as Array<{ id: string; name: string; units_sold: number }> : [];
+  const salesTrend = salesWindow ? dailySalesTrend(now, timeZone, 7, db.prepare(`SELECT captured_at AS capturedAt, total_minor AS totalMinor, state
+    FROM orders WHERE shop_id = ? AND captured_at >= ? AND captured_at < ?`).all(shopId, salesWindow.start, salesWindow.end) as Array<{ capturedAt: string; totalMinor: number; state: string }>) : [];
   const lowStock = products.filter((product) => product.available <= 5);
   return {
     date: `${localDay.year}-${String(localDay.month).padStart(2, "0")}-${String(localDay.day).padStart(2, "0")}`, timeZone, currency: shop.currency,
@@ -87,6 +90,7 @@ function organizerFactsSqlite(db: SqliteDb, timeZone: string, now = new Date(), 
     products,
     unitsSold: soldRows,
     unitsSoldLast7Days,
+    salesTrend,
   };
 }
 
@@ -103,7 +107,7 @@ function organizerSummarySqlite(db: SqliteDb, timeZone: string, shopId = DEFAULT
   const rows = db.prepare("SELECT * FROM orders WHERE shop_id = ? ORDER BY created_at DESC LIMIT 50").all(shopId) as OrderRow[];
   const orders = rows.map((order) => ({
     orderId: order.id, state: order.state, totalMinor: order.total_minor, currency: order.currency,
-    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickup_code } : {}),
+    ...(order.state === "paid" || order.state === "collected" ? { pickupCode: order.pickup_number ?? order.pickup_code } : {}),
     createdAt: order.created_at,
     items: listOrderLines(db, order.id, shopId).map((item) => ({ name: item.display_name, quantity: item.quantity })),
   }));

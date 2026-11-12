@@ -4,6 +4,7 @@ import type { StoreTransaction } from "./firestore-store.js";
 import type { FirestoreDb } from "./database.js";
 import { DEFAULT_SHOP_ID } from "./database.js";
 import { ApiError } from "./errors.js";
+import { formatPickupNumber, pickupDateForShop } from "./pickup-number.js";
 import type { OrderLineRow, OrderRow, OrderState, ReservationInput, ReservedOrder } from "./order-state.js";
 
 type OrderLine = OrderLineRow & { shopId: string };
@@ -11,13 +12,14 @@ type OrderDoc = FirestoreDocument & {
   id: string; shopId: string; sessionHash: string; clientRequestKey: string; requestFingerprint: string;
   cartVersion: number; catalogRevision: number; state: OrderState; currency: string; totalMinor: number;
   paypalCreateRequestId: string; paypalCaptureRequestId: string; paypalRefundRequestId: string;
-  paypalOrderId: string | null; paypalCaptureId: string | null; paypalRefundId: string | null; pickupCode: string | null;
+  paypalOrderId: string | null; paypalApproveUrl?: string | null; paypalCaptureId: string | null; paypalRefundId: string | null;
+  pickupCode: string | null; pickupNumber?: string | null; pickupDate?: string | null;
   expiresAt: string; refundRestockRequested: number | null; restockAppliedAt: string | null;
   createAttemptStartedAt: string | null; capturedAt: string | null; refundedAt: string | null;
   createdAt: string; updatedAt: string; items: OrderLine[];
 };
 type ProductDoc = FirestoreDocument & { id: string; shopId: string; stockOnHand: number; reservedQuantity: number; name: string; priceMinor: number };
-type ShopDoc = FirestoreDocument & { catalogRevision: number };
+type ShopDoc = FirestoreDocument & { catalogRevision: number; timeZone?: string };
 type SessionDoc = FirestoreDocument & { shopId: string; cartVersion: number };
 type CartLineDoc = FirestoreDocument & { id: string; shopId: string; sessionHash: string; productId: string; quantity: number };
 
@@ -31,8 +33,9 @@ function orderRow(doc: OrderDoc): OrderRow {
     request_fingerprint: doc.requestFingerprint, cart_version: doc.cartVersion, catalog_revision: doc.catalogRevision,
     state: doc.state, currency: doc.currency as OrderRow["currency"], total_minor: doc.totalMinor,
     paypal_create_request_id: doc.paypalCreateRequestId, paypal_capture_request_id: doc.paypalCaptureRequestId,
-    paypal_refund_request_id: doc.paypalRefundRequestId, paypal_order_id: doc.paypalOrderId,
+    paypal_refund_request_id: doc.paypalRefundRequestId, paypal_order_id: doc.paypalOrderId, paypal_approve_url: doc.paypalApproveUrl ?? null,
     paypal_capture_id: doc.paypalCaptureId, paypal_refund_id: doc.paypalRefundId, pickup_code: doc.pickupCode,
+    pickup_number: doc.pickupNumber ?? null, pickup_date: doc.pickupDate ?? null,
     expires_at: doc.expiresAt, refund_restock_requested: doc.refundRestockRequested,
     restock_applied_at: doc.restockAppliedAt, create_attempt_started_at: doc.createAttemptStartedAt,
     captured_at: doc.capturedAt, refunded_at: doc.refundedAt, created_at: doc.createdAt, updated_at: doc.updatedAt,
@@ -92,6 +95,15 @@ export async function findOrderByCaptureId(db: FirestoreDb, captureId: string): 
 export async function listOrderLines(db: FirestoreDb, orderId: string, shopId?: string): Promise<OrderLineRow[]> {
   const order = await orderById(db, orderId, shopId);
   return order ? lineRows(order) : [];
+}
+
+export async function listPendingPaymentOrders(db: FirestoreDb, shopId: string): Promise<OrderRow[]> {
+  const rows = await db.firestoreStore.query<OrderDoc>("orders", [
+    { field: "shopId", op: "==", value: shopId },
+    { field: "state", op: "==", value: "pending_payment" },
+  ], { field: "createdAt", direction: "asc" }, 50);
+  const now = Date.now();
+  return rows.filter((order) => Date.parse(order.expiresAt) > now).map(orderRow);
 }
 
 export async function normalizeExpiredOrders(db: FirestoreDb, shopId = DEFAULT_SHOP_ID, now = new Date().toISOString()): Promise<number> {
@@ -165,7 +177,7 @@ export async function reserveOrder(db: FirestoreDb, input: ReservationInput): Pr
       requestFingerprint: fingerprint, cartVersion: input.cartVersion, catalogRevision: input.catalogRevision,
       state: "creating_payment", currency: shop.currency as OrderDoc["currency"], totalMinor,
       paypalCreateRequestId: randomUUID(), paypalCaptureRequestId: randomUUID(), paypalRefundRequestId: randomUUID(),
-      paypalOrderId: null, paypalCaptureId: null, paypalRefundId: null, pickupCode: null, expiresAt,
+      paypalOrderId: null, paypalApproveUrl: null, paypalCaptureId: null, paypalRefundId: null, pickupCode: null, expiresAt,
       refundRestockRequested: null, restockAppliedAt: null, createAttemptStartedAt: now, capturedAt: null,
       refundedAt: null, createdAt: now, updatedAt: now, items: lines,
     };
@@ -179,7 +191,8 @@ export async function reserveOrder(db: FirestoreDb, input: ReservationInput): Pr
   });
 }
 
-export async function setCreatedOrder(db: FirestoreDb, orderId: string, paypalOrderId: string, shopId = DEFAULT_SHOP_ID): Promise<OrderRow> {
+export async function setCreatedOrder(db: FirestoreDb, orderId: string, paypalOrderId: string, shopId = DEFAULT_SHOP_ID,
+  approveUrl: string | null = null): Promise<OrderRow> {
   return db.firestoreStore.runTransaction(async (transaction) => {
     const order = await transaction.get<OrderDoc>("orders", orderId);
     if (order?.shopId === shopId && order.state === "pending_payment" && order.paypalOrderId === paypalOrderId) return orderRow(order);
@@ -191,9 +204,9 @@ export async function setCreatedOrder(db: FirestoreDb, orderId: string, paypalOr
     const shop = await transaction.get<ShopDoc>("shops", shopId);
     const now = new Date().toISOString();
     transaction.set("paypalOrderIds", paypalOrderId, { orderId });
-    transaction.update("orders", orderId, { paypalOrderId, state: "pending_payment", updatedAt: now });
+    transaction.update("orders", orderId, { paypalOrderId, paypalApproveUrl: approveUrl, state: "pending_payment", updatedAt: now });
     if (shop) transaction.update("shops", shopId, { catalogRevision: shop.catalogRevision + 1, updatedAt: now });
-    return orderRow({ ...order, paypalOrderId, state: "pending_payment", updatedAt: now });
+    return orderRow({ ...order, paypalOrderId, paypalApproveUrl: approveUrl, state: "pending_payment", updatedAt: now });
   });
 }
 
@@ -269,13 +282,18 @@ export async function completeCapture(db: FirestoreDb, orderId: string, captureI
       return orderRow(order);
     }
     if (!["pending_payment", "capture_unknown"].includes(order.state)) throw new ApiError(409, "order_state_conflict", "This order cannot be captured in its current state.");
-    const [shop, products, session, cartRows, captureIndex, pickupIndexes] = await Promise.all([
-      transaction.get<ShopDoc>("shops", order.shopId),
+    const shop = await transaction.get<ShopDoc>("shops", order.shopId);
+    const capturedAt = new Date();
+    const now = capturedAt.toISOString();
+    const pickupDate = pickupDateForShop(capturedAt, shop?.timeZone ?? "Asia/Tokyo");
+    const pickupCounterId = `${order.shopId}_${pickupDate}`;
+    const [products, session, cartRows, captureIndex, pickupIndexes, pickupCounter] = await Promise.all([
       Promise.all(order.items.map((line) => transaction.get<ProductDoc>("products", line.product_id))),
       transaction.get<SessionDoc>("visitorSessions", order.sessionHash),
       transaction.query<CartLineDoc>("cartItems", [{ field: "sessionHash", op: "==", value: order.sessionHash }]),
       transaction.get<{ orderId: string } & FirestoreDocument>("paypalCaptureIds", captureId),
       Promise.all(pickupCandidates.map((code) => transaction.get("pickupCodes", code))),
+      transaction.get<{ count: number } & FirestoreDocument>("pickupCounters", pickupCounterId),
     ]);
     const currentCart = cartRows.filter((item) => item.shopId === order.shopId);
     const extraProducts = currentCart.filter((item) => !order.items.some((line) => line.product_id === item.productId));
@@ -283,7 +301,7 @@ export async function completeCapture(db: FirestoreDb, orderId: string, captureI
     if (captureIndex && captureIndex.orderId !== orderId) throw new ApiError(409, "paypal_capture_conflict", "This PayPal capture is already linked to another order.");
     const pickupCode = pickupCandidates[pickupIndexes.findIndex((item) => !item)];
     if (!pickupCode) throw new Error("Unable to allocate pickup code");
-    const now = new Date().toISOString();
+    const pickupNumber = formatPickupNumber((pickupCounter?.count ?? 0) + 1);
     let cartUnchanged = !!session && session.cartVersion === order.cartVersion;
     if (cartUnchanged) {
       const itemMap = new Map(order.items.map((item) => [item.product_id, item]));
@@ -310,10 +328,12 @@ export async function completeCapture(db: FirestoreDb, orderId: string, captureI
     }
     transaction.create("paypalCaptureIds", captureId, { orderId });
     transaction.create("pickupCodes", pickupCode, { orderId });
-    transaction.update("orders", orderId, { state: "paid", paypalCaptureId: captureId, pickupCode,
+    transaction.set("pickupCounters", pickupCounterId, { count: (pickupCounter?.count ?? 0) + 1, updatedAt: now });
+    transaction.update("orders", orderId, { state: "paid", paypalCaptureId: captureId, pickupCode, pickupNumber, pickupDate,
       capturedAt: now, updatedAt: now });
     if (shop) transaction.update("shops", order.shopId, { catalogRevision: shop.catalogRevision + 1, updatedAt: now });
-    return orderRow({ ...order, state: "paid", paypalCaptureId: captureId, pickupCode, capturedAt: now, updatedAt: now });
+    return orderRow({ ...order, state: "paid", paypalCaptureId: captureId, pickupCode, pickupNumber, pickupDate,
+      capturedAt: now, updatedAt: now });
   });
 }
 

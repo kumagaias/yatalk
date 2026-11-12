@@ -10,7 +10,7 @@ import type { CurrencyCode } from "../../shared/currency.js";
 import { MAX_FREE_OWNER_SHOPS } from "../../shared/owner-limits.js";
 import { requireExactOrigin } from "../security.js";
 import { parseBody, requireEmptyBody, requireJson } from "../http.js";
-import { addShopRequestSchema, ownerLoginRequestSchema, ownerRegistrationRequestSchema, ownerRegistrationSlugSchema, ownerSlugSchema, shopSlugSchema } from "../../shared/schemas.js";
+import { addShopRequestSchema, deleteShopRequestSchema, ownerLoginRequestSchema, ownerRegistrationRequestSchema, ownerRegistrationSlugSchema, ownerSlugSchema, shopSlugSchema } from "../../shared/schemas.js";
 import { createOwnerAccount, createOwnedShop, getOwnerByEmail, isOwnerSlugAvailable, listOwnerShops } from "../firestore-owners.js";
 import type { EmailSender } from "../email.js";
 import { consumeEmailVerification, consumePasswordReset, issueAccountToken } from "../account-tokens.js";
@@ -53,13 +53,47 @@ async function createShopForOwner(db: Db, owner: { id: string; currency: Currenc
   }
 }
 
+async function removeShopForOwner(db: Db, ownerId: string, slug: string, confirmation: string): Promise<void> {
+  const shop = (db as FirestoreDb).firestoreBrand
+    ? (await listOwnerShops(db as FirestoreDb, ownerId)).find((candidate) => candidate.slug === slug)
+    : db.prepare(`SELECT shops.id, shops.slug, shops.name, shops.status, shops.currency, shops.owner_user_id AS ownerUserId,
+        shops.time_zone AS timeZone, users.owner_slug AS ownerSlug
+      FROM shops JOIN shop_memberships ON shop_memberships.shop_id = shops.id
+      JOIN users ON users.id = shops.owner_user_id
+      WHERE shop_memberships.user_id = ? AND shops.slug = ? COLLATE NOCASE`)
+      .get(ownerId, slug) as Shop | undefined;
+  if (!shop || shop.status !== "active") throw new ApiError(404, "shop_not_found", "The requested shop was not found.");
+  if (confirmation !== shop.name) throw new ApiError(400, "shop_delete_confirmation_invalid", "Enter the shop name exactly to delete it.");
+  const deletedAt = new Date().toISOString();
+  if ((db as FirestoreDb).firestoreBrand) {
+    const firestore = db as FirestoreDb;
+    await firestore.firestoreStore.runTransaction(async (transaction) => {
+      const [currentShop, owner, memberships] = await Promise.all([
+        transaction.get<{ ownerUserId: string; status: "active" | "inactive" }>("shops", shop.id),
+        transaction.get<{ shopCount?: number }>("users", ownerId),
+        transaction.query<{ shopId: string }>("shopMemberships", [{ field: "shopId", op: "==", value: shop.id }]),
+      ]);
+      if (!currentShop || currentShop.ownerUserId !== ownerId || currentShop.status !== "active") throw new ApiError(404, "shop_not_found", "The requested shop was not found.");
+      transaction.update("shops", shop.id, { status: "inactive", deletedAt, updatedAt: deletedAt });
+      memberships.forEach((membership) => transaction.delete("shopMemberships", membership.id));
+      if (owner && typeof owner.shopCount === "number") transaction.update("users", ownerId, { shopCount: Math.max(0, owner.shopCount - 1) });
+    });
+    return;
+  }
+  (db as import("../database.js").SqliteDb).transaction(() => {
+    db.prepare("UPDATE shops SET status = 'inactive', updated_at = ? WHERE id = ? AND owner_user_id = ?")
+      .run(deletedAt, shop.id, ownerId);
+    db.prepare("DELETE FROM shop_memberships WHERE shop_id = ?").run(shop.id);
+  }).immediate();
+}
+
 export function tenantRoutes(db: Db, config: AppConfig, emailSender: EmailSender): Router {
   const router = Router();
   const originOnly = requireExactOrigin(config);
   const ownerOnly = requireOwner(db);
   const signupPerIp = createRateLimit(10, 60 * 60_000, ipKey);
   const slugCheckPerIp = createRateLimit(60, 60_000, ipKey);
-  const loginPerIp = createRateLimit(5, 15 * 60_000, ipKey);
+  const loginPerIp = createRateLimit(10, 15 * 60_000, ipKey);
   const loginPerEmail = createRateLimit(10, 15 * 60_000, (request) => {
     const email = request.body && typeof request.body === "object" ? (request.body as Record<string, unknown>).email : "";
     return typeof email === "string" ? email.trim().toLowerCase().slice(0, 254) : "missing";
@@ -205,8 +239,9 @@ export function tenantRoutes(db: Db, config: AppConfig, emailSender: EmailSender
     if (userId) {
       try {
         const token = await issueAccountToken(db, userId, "password_reset");
-        await sendAccountEmail({ to: email, subject: "Reset your Yatalk password",
+        const sent = await sendAccountEmail({ to: email, subject: "Reset your Yatalk password",
           text: `Use this link within 30 minutes to reset your Yatalk owner password: ${tokenLink("/password-reset", token)}\n\nIf you did not request this, you can ignore this message.` });
+        if (!sent) logStage(request.requestId, "password_reset_email", "failure");
       } catch (error) { logStage(request.requestId, "password_reset_email", "failure", error); }
     }
     response.status(202).json({ message: "If an account uses that email, a password reset link will arrive shortly." });
@@ -243,6 +278,15 @@ export function tenantRoutes(db: Db, config: AppConfig, emailSender: EmailSender
     if (!request.ownerUserId || !request.ownerCurrency) throw new ApiError(409, "owner_setup_incomplete", "Sign in again to finish setting up your owner account.");
     const shop = await createShopForOwner(db, { id: request.ownerUserId, currency: request.ownerCurrency }, input.slug, input.name);
     response.status(201).json({ shop: publicShop(shop), dashboardUrl: `/dashboard/${shop.ownerSlug}/${shop.slug}` });
+  });
+
+  router.delete("/dashboard/shops/:shopSlug", originOnly, ownerOnly, async (request, response) => {
+    requireJson(request);
+    const slug = shopSlugSchema.safeParse(request.params.shopSlug);
+    if (!slug.success || !request.ownerUserId) throw new ApiError(404, "shop_not_found", "The requested shop was not found.");
+    const { confirmation } = parseBody(deleteShopRequestSchema, request);
+    await removeShopForOwner(db, request.ownerUserId, slug.data, confirmation);
+    response.json({ deleted: true });
   });
 
   return router;
