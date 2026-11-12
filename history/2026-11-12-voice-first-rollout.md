@@ -16,6 +16,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Added customer voice flow copy, browser-language speech output, PayPal path improvements, sample-menu preview, favicon, and analytics tool-call signature handling.
 - Added a shop-owner Danger zone, confirmed deletion endpoint, QR counter link, and separated sign-in recovery links.
 - Updated the preview Cloud Run image configuration.
+- Expanded the public README with PayPal, Gemini, AG Studio, and Resend setup details; MIT license is already included at the repository root.
 
 ## Checks
 

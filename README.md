@@ -2,9 +2,26 @@
 
 Yatalk helps local shops take orders through conversation. Owners create path-based storefronts, add menu items from a photo or by hand, and share a QR code. Visitors can browse, order by voice or chat, review the server-priced cart, and pay in PayPal Sandbox. Each shop has its own cart, inventory, orders, and operations dashboard.
 
+## How it works
+
+1. A stall owner displays a permanent counter QR code. It opens that shop with `?counter=1`.
+2. A customer opens the menu on their own phone, speaks or types an order, reviews the cart, and checks out with PayPal.
+3. The server creates and captures a PayPal order, then issues a pickup number. The owner sees the paid order in the counter queue.
+
+## PayPal, AI, and sponsor integrations
+
+| Integration | How Yatalk uses it |
+|---|---|
+| **PayPal Orders API and JavaScript SDK** | The server creates an order from the authoritative cart total, and the customer approves payment on their own device. Yatalk captures the approved order server-side, validates the result, records a pickup number, and verifies PayPal webhooks to cover return-page drop-off. The hackathon deployment uses **PayPal Sandbox** only. |
+| **Google Gemini on Vertex AI** | Gemini reads owner-supplied menu photos, transcribes short voice clips, turns multilingual speech or text into validated cart operations, and writes the natural customer reply in the browser language. Menu items and stock are supplied as context; Gemini never sets prices, captures payments, refunds, or edits inventory. |
+| **AG Studio (AG Grid)** | The owner dashboard sends read-only, shop-scoped aggregates to Gemini. Gemini can compose and refine sales and stock visual reports in AG Studio without access to customer details or transaction controls. |
+| **Google Cloud Run, Firestore, and Cloud Storage** | Cloud Run hosts the app; Firestore stores owner shops, carts, orders, and inventory; Cloud Storage holds optional shop-cover uploads. |
+
+The project is deliberately reviewable: customers confirm recognized orders and the calculated cart before PayPal, while owners review every OCR menu suggestion before publishing it.
+
 ## Requirements
 
-- Node.js 22.12 or newer
+- Node.js 24.22.x
 - npm
 - A PayPal Developer account with a Sandbox REST app and buyer/seller accounts
 - A Google Cloud project with billing enabled and the Vertex AI API enabled
@@ -53,6 +70,10 @@ The app seeds fictional Little Harbor Market products on first run. Newly create
 | `GEMINI_MODEL` | Vertex AI model for menu OCR, chat, and audio transcription (`gemini-3.5-flash-lite`) |
 | `ADMIN_ACCESS_CODE` | Organizer login passphrase (minimum 16 characters) |
 | `ADMIN_SESSION_SECRET` | Random secret used to sign expiring organizer cookies |
+| `RESEND_API_KEY` | Optional Resend sending key for owner verification and password-reset email; never expose it in the browser or commit it |
+| `RESEND_FROM_EMAIL` | Optional verified Resend sender, for example `noreply@kumagaias.com` |
+
+Email delivery is disabled until both Resend variables are set. In Cloud Run, add the API key as a Secret Manager version and enable `enable_email_delivery = true` with the verified sender in `infra/environments/prd/prd.auto.tfvars`. Do not paste the key into Terraform variables, source, or Git history.
 
 ## Webhooks
 
