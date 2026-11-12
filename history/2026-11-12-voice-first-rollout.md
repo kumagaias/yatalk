@@ -23,6 +23,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Added safe AG Studio provider-failure classification (without provider text or request data) to distinguish Vertex tool-protocol errors from transient quota errors in production logs.
 - Restored Gemini's required parallel tool-call shape after AG Studio interleaves each call with its result: all calls now precede all ordered responses, while sequential signed calls remain separate steps.
 - Allowed AG Studio's evolving built-in tool metadata through the bounded API boundary, then validate and filter it before Vertex. Seeded local tool calls now use Gemini's documented signature-validator marker, and the dashboard exposes a Stop control that cancels an active parent run and its delegates.
+- Bounded AG Studio's default per-agent execution loops for the shop dashboard (lead: 5 turns; delegated agents: 2 turns each). The library default is 100 turns per agent, which caused a single overview request to make an excessive number of sequential Gemini calls and hit quota limits.
 
 ## Checks
 
@@ -36,6 +37,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Focused Gemini tests and the production build passed for the checkout lock and AG Studio fallback.
 - Focused Gemini tests and the production build passed for parallel thought-signature turn reconstruction.
 - Focused tenant and Gemini tests plus the production build passed for the Studio metadata, seeded-call, and cancellation updates.
+- Production build passed for the bounded AG Studio agent loops.
 
 ## Next steps
 

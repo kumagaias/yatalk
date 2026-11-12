@@ -1,4 +1,4 @@
-import { createAiHarness, type AgAiHarness, type AgAiHarnessSetupParams, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
+import { createAiHarness, directLlmRunner, type AgAiHarness, type AgAiHarnessSetupParams, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
 import { AgStudio, type AgRegistry } from "ag-studio-react";
 import { BarChart3, RefreshCw, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +34,16 @@ const promptStarters = [
   { label: "What should I prep?", prompt: "Compare each menu item's units sold in the last 7 days with its available stock. Show which items need preparation attention and explain the data." },
   { label: "Items sold today", prompt: "Create a chart of units sold today by menu item, with a table showing available stock alongside it." },
 ];
+
+// The AG Studio defaults allow 100 rounds per agent. That is useful for open-ended
+// assistants, but an overview of a small market should resolve in a few tool calls.
+const agentTurnLimits: Record<string, number> = {
+  lead: 5,
+  data: 2,
+  page: 2,
+  planning: 2,
+  widget: 2,
+};
 
 export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   const [result, setResult] = useState<AnalyticsData | null>(null);
@@ -90,7 +100,15 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   // AG Studio's React registry narrows the wrapper API, while createAiHarness currently accepts
   // the base Studio API only. Both are the same runtime Studio API.
   const configureAi = useCallback((params: AgAiHarnessSetupParams) => {
-    const harness = createAiHarness(params.api as unknown as AgStudioApi, { adapter, promptStarters });
+    const harness = createAiHarness(params.api as unknown as AgStudioApi, ({ builtIn }) => ({
+      agents: Object.values(builtIn).map((agent) => directLlmRunner({
+        ...agent,
+        adapter,
+        maxTurns: agentTurnLimits[agent.id] ?? 2,
+      })),
+      primary: "lead",
+      promptStarters,
+    }));
     harnessRef.current = harness;
     return harness;
   }, [adapter]);
