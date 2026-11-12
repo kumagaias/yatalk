@@ -6,6 +6,13 @@ const stockComparisonWidgetId = "yatalk-stock-demand-comparison";
 const overviewFieldNames = ["Net Sales", "Paid Orders", "Low Stock Items"];
 
 export type AnalyticsPreset = "overview" | "salesTrend" | "stockHealth";
+export type DashboardTemplate = "operations" | "sales" | "inventory";
+
+export function createDashboardTemplate(schema: AgAiSchemaMeta, template: DashboardTemplate): AgReportState {
+  const empty: AgReportState = { selectedPageId: "overview", pages: [{ id: "overview" }] };
+  if (template === "operations") return upsertAnalyticsBoard(schema, empty);
+  return upsertAnalyticsPreset(schema, empty, template === "sales" ? "salesTrend" : "stockHealth");
+}
 
 export type OverviewWidgetPlan = {
   widgetId: string;

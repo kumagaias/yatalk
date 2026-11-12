@@ -1,11 +1,12 @@
-import { createAiHarness, directLlmRunner, type AgAiHarness, type AgAiHarnessSetupParams, type AgAiPromptStarter, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
+import { createAiHarness, directLlmRunner, studioTheme, type AgAiHarness, type AgAiHarnessSetupParams, type AgAiPromptStarter, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
 import { AgStudio, type AgRegistry } from "ag-studio-react";
-import { BarChart3, Boxes, ChartLine, RefreshCw, Sparkles, Square } from "lucide-react";
+import { BarChart3, Boxes, ChartLine, LayoutDashboard, Plus, RefreshCw, Sparkles, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CurrencyCode } from "../../shared/currency.js";
 import { get } from "../lib/api";
 import { AgStudioGeminiAdapter } from "../lib/agStudioGeminiAdapter";
-import { type AnalyticsPreset, upsertAnalyticsBoard, upsertAnalyticsPreset } from "../lib/agStudioOverview";
+import { createDashboardTemplate, type AnalyticsPreset, type DashboardTemplate, upsertAnalyticsBoard, upsertAnalyticsPreset } from "../lib/agStudioOverview";
+import { readDashboardLibrary, replaceDashboardState, type DashboardLibrary } from "../lib/dashboardLibrary";
 
 type AnalyticsData = {
   overview: {
@@ -33,6 +34,10 @@ type Props = { shopKey: string; shopName: string; apiBase: string };
 
 const promptStarters: AgAiPromptStarter[] = [
   {
+    label: "New dashboard",
+    prompt: "Create a new named Operations dashboard called Daily operations. Use the create_dashboard tool, then explain what it contains.",
+  },
+  {
     label: "Forecast tomorrow",
     prompt: "Estimate tomorrow's net sales from the daily sales data. State the 7-day average calculation, call it an estimate, and give one concise operational recommendation. Do not create or change dashboard widgets.",
   },
@@ -58,6 +63,27 @@ const agentTurnLimits: Record<string, number> = {
   widget: 5,
 };
 
+const analyticsTheme = studioTheme.withParams({
+  backgroundColor: "#f8fafc",
+  fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+  studioCanvasBackgroundColor: "#f4f7fb",
+  studioWidgetBackgroundColor: "#ffffff",
+  studioWidgetBorderRadius: 10,
+  studioWidgetShadow: { offsetY: 2, radius: 8, color: "#102a4314" },
+  studioWidgetTitleFontWeight: 650,
+  studioWidgetTitleTextColor: "#11243a",
+  chartAccentColor: "#2563eb",
+  chartGridLineColor: "#e4eaf1",
+  chartPaletteFills1Color: "#2563eb",
+  chartPaletteFills2Color: "#14b8a6",
+  chartPaletteFills3Color: "#f59e0b",
+  chartPaletteFills4Color: "#8b5cf6",
+  chartPaletteStrokes1Color: "#1d4ed8",
+  chartPaletteStrokes2Color: "#0f766e",
+  chartPaletteStrokes3Color: "#c2410c",
+  chartPaletteStrokes4Color: "#6d28d9",
+});
+
 export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   const [result, setResult] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,9 +92,20 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   const [overviewStatus, setOverviewStatus] = useState("");
   const harnessRef = useRef<AgAiHarness | null>(null);
   const studioApiRef = useRef<AgStudioApi | null>(null);
-  const storageKey = `yatalk.ag-studio.v1.${shopKey}`;
-  const [initialState] = useState<AgReportState<AgRegistry> | undefined>(() => readSavedState(storageKey));
+  const storageKey = `yatalk.ag-studio.v2.${shopKey}`;
+  const legacyStorageKey = `yatalk.ag-studio.v1.${shopKey}`;
+  const [dashboardLibrary, setDashboardLibrary] = useState<DashboardLibrary>(() => readSavedState(storageKey, legacyStorageKey));
+  const dashboardLibraryRef = useRef(dashboardLibrary);
+  const activeDashboard = dashboardLibrary.dashboards.find(({ id }) => id === dashboardLibrary.activeId) ?? dashboardLibrary.dashboards[0]!;
+  const [initialState] = useState<AgReportState<AgRegistry> | undefined>(() => activeDashboard.state as AgReportState<AgRegistry>);
   const adapter = useMemo(() => new AgStudioGeminiAdapter(`${apiBase}/studio/turn`), [apiBase]);
+
+  const saveDashboardLibrary = useCallback((next: DashboardLibrary) => {
+    dashboardLibraryRef.current = next;
+    setDashboardLibrary(next);
+    try { window.localStorage.setItem(storageKey, JSON.stringify(next)); }
+    catch { /* Dashboard editing remains available when browser storage is unavailable. */ }
+  }, [storageKey]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -120,19 +157,58 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
 
   // AG Studio's React registry narrows the wrapper API, while createAiHarness currently accepts
   // the base Studio API only. Both are the same runtime Studio API.
+  const createDashboard = useCallback((template: DashboardTemplate, requestedName?: string) => {
+    const studioApi = studioApiRef.current;
+    if (!studioApi) throw new Error("The report is still loading. Try again in a moment.");
+    const id = `dashboard-${crypto.randomUUID()}`;
+    const fallbackName = template === "operations" ? "Operations dashboard" : template === "sales" ? "Sales dashboard" : "Inventory dashboard";
+    const name = normalizeDashboardName(requestedName, fallbackName);
+    const state = collapseEditorPanels(createDashboardTemplate(studioApi.getAiContext().schema(), template));
+    const next = {
+      activeId: id,
+      dashboards: [...dashboardLibraryRef.current.dashboards, { id, name, state }],
+    };
+    saveDashboardLibrary(next);
+    studioApi.setState(state, { historyLabel: `Created ${name}`, source: { type: "api" } });
+    setOverviewStatus(`${name} is ready. Use the edge arrows in AG Studio whenever you want to edit it.`);
+    return { id, name };
+  }, [saveDashboardLibrary]);
+
   const configureAi = useCallback((params: AgAiHarnessSetupParams) => {
-    const harness = createAiHarness(params.api as unknown as AgStudioApi, ({ builtIn }) => ({
-      agents: Object.values(builtIn).map((agent) => directLlmRunner({
-        ...agent,
-        adapter,
-        maxTurns: agentTurnLimits[agent.id] ?? 2,
-      })),
+    const api = params.api as unknown as AgStudioApi;
+    const createDashboardTool = api.defineAiTool({
+      name: "create_dashboard",
+      description: "Create a separate named dashboard for this shop. Use this when the user asks for a new dashboard or report, not when they only want to modify the dashboard already open.",
+      params: (shape) => shape.object({
+        name: shape.string({ description: "Short dashboard name" }),
+        template: shape.enum(["operations", "sales", "inventory"] as const, { description: "operations combines KPIs, daily sales, and stock demand; sales is a daily line chart; inventory compares available stock and seven-day demand" }),
+      }),
+      execute: (args, context) => {
+        try {
+          const dashboard = createDashboard(args.template, args.name);
+          return context.success(`Created and opened the ${dashboard.name} dashboard.`, dashboard);
+        } catch (cause) {
+          return context.error(cause instanceof Error ? cause.message : "The dashboard could not be created.");
+        }
+      },
+    });
+    const harness = createAiHarness(api, ({ builtIn }) => ({
+      agents: Object.values(builtIn).map((agent) => {
+        const isLead = agent.id === "lead";
+        return directLlmRunner({
+          ...agent,
+          instructions: isLead ? (context, agentParams) => `${agent.instructions?.(context, agentParams) ?? ""}\n\nWhen a user asks to create a new dashboard, call create_dashboard exactly once before discussing or refining it. Choose the closest template and keep the name concise.` : agent.instructions,
+          tools: isLead ? (context, agentParams) => [...(agent.tools?.(context, agentParams) ?? []), createDashboardTool] : agent.tools,
+          adapter,
+          maxTurns: agentTurnLimits[agent.id] ?? 2,
+        });
+      }),
       primary: "lead",
       promptStarters,
     }));
     harnessRef.current = harness;
     return harness;
-  }, [adapter]);
+  }, [adapter, createDashboard]);
 
   const stopAi = useCallback(() => {
     const harness = harnessRef.current;
@@ -181,11 +257,19 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
     }
   }, []);
 
+  const selectDashboard = useCallback((dashboardId: string) => {
+    const dashboard = dashboardLibraryRef.current.dashboards.find(({ id }) => id === dashboardId);
+    const studioApi = studioApiRef.current;
+    if (!dashboard || !studioApi || dashboardId === dashboardLibraryRef.current.activeId) return;
+    saveDashboardLibrary({ ...dashboardLibraryRef.current, activeId: dashboardId });
+    studioApi.setState(dashboard.state, { historyLabel: `Opened ${dashboard.name}`, source: { type: "api" } });
+    setOverviewStatus(`Opened ${dashboard.name}.`);
+  }, [saveDashboardLibrary]);
+
   const onStateUpdated = useCallback((event: AgStudioStateUpdatedEvent) => {
     if (!event.durable) return;
-    try { window.localStorage.setItem(storageKey, JSON.stringify(event.state)); }
-    catch { /* The report remains usable when browser storage is unavailable. */ }
-  }, [storageKey]);
+    saveDashboardLibrary(replaceDashboardState(dashboardLibraryRef.current, dashboardLibraryRef.current.activeId, event.state));
+  }, [saveDashboardLibrary]);
 
   return (
     <section className="dashboard-card ag-analytics-card" aria-labelledby="ag-analytics-heading">
@@ -207,6 +291,18 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
       {error && <div className="ag-analytics-error" role="alert">{error} <button className="text-button" type="button" onClick={() => void loadData()}>Retry</button></div>}
       {overviewStatus && <p className="ag-analytics-status" role="status">{overviewStatus}</p>}
       {loading && !data && <p className="ag-analytics-loading" role="status">Loading shop analytics…</p>}
+      {data && <div className="dashboard-library-bar">
+        <label>
+          <LayoutDashboard size={16} aria-hidden="true" />
+          <span>Dashboard</span>
+          <select value={activeDashboard.id} onChange={(event) => selectDashboard(event.target.value)} aria-label="Choose a saved dashboard">
+            {dashboardLibrary.dashboards.map((dashboard) => <option key={dashboard.id} value={dashboard.id}>{dashboard.name}</option>)}
+          </select>
+        </label>
+        <button className="button button-secondary" type="button" onClick={() => createDashboard("operations")}>
+          <Plus size={16} aria-hidden="true" />New dashboard
+        </button>
+      </div>}
       {data && <div className="ag-preset-bar" aria-label="AG Studio overview presets">
         <div className="ag-preset-intro">
           <span className="eyebrow">Ready-made views</span>
@@ -229,6 +325,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
           data={data}
           mode="edit"
           ai={configureAi}
+          theme={analyticsTheme}
           initialState={initialState}
           onStateUpdated={onStateUpdated}
           onStudioReady={({ api }) => { studioApiRef.current = api; }}
@@ -241,12 +338,11 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   );
 }
 
-function readSavedState(key: string): AgReportState<AgRegistry> | undefined {
+function readSavedState(key: string, legacyKey: string): DashboardLibrary {
   try {
-    const saved = window.localStorage.getItem(key);
-    return saved ? JSON.parse(saved) as AgReportState<AgRegistry> : undefined;
+    return readDashboardLibrary(window.localStorage.getItem(key), window.localStorage.getItem(legacyKey));
   } catch {
-    return undefined;
+    return readDashboardLibrary(null, null);
   }
 }
 
@@ -263,4 +359,9 @@ function collapseEditorPanels(state: AgReportState): AgReportState {
       data: collapse("data"),
     },
   };
+}
+
+function normalizeDashboardName(value: string | undefined, fallback: string): string {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+  return normalized ? normalized.slice(0, 56) : fallback;
 }

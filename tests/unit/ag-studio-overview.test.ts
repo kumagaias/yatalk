@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgAiSchemaMeta, AgReportState } from "ag-studio";
-import { createTodayOverviewPlan, upsertAnalyticsBoard, upsertAnalyticsPreset, upsertTodayOverview } from "../../src/lib/agStudioOverview.js";
+import { createDashboardTemplate, createTodayOverviewPlan, upsertAnalyticsBoard, upsertAnalyticsPreset, upsertTodayOverview } from "../../src/lib/agStudioOverview.js";
 
 const schema: AgAiSchemaMeta = {
   tables: [{
@@ -83,6 +83,16 @@ test("chart presets add one full-width editable chart at a time", () => {
   assert.deepEqual(salesTrend.widgetLayout?.["yatalk-daily-sales-trend"], { xTrack: 0, yTrack: 4, xSpan: 24, ySpan: 11 });
   assert.equal(stockHealth.widgets?.["yatalk-stock-demand-comparison"]?.type, "bar-chart-grouped");
   assert.deepEqual(stockHealth.widgetLayout?.["yatalk-stock-demand-comparison"], { xTrack: 0, yTrack: 4, xSpan: 24, ySpan: 11 });
+});
+
+test("dashboard templates start separate reports with the requested layout", () => {
+  const operations = createDashboardTemplate(schema, "operations");
+  const sales = createDashboardTemplate(schema, "sales");
+  const inventory = createDashboardTemplate(schema, "inventory");
+
+  assert.equal(operations.pages[0]?.widgets?.["yatalk-today-overview"]?.type, "multi-kpi");
+  assert.equal(sales.pages[0]?.widgets?.["yatalk-daily-sales-trend"]?.type, "line-chart");
+  assert.equal(inventory.pages[0]?.widgets?.["yatalk-stock-demand-comparison"]?.type, "bar-chart-grouped");
 });
 
 function field(fieldId: string, name: string): AgAiSchemaMeta["tables"][number]["fields"][number] {
