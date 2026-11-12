@@ -1,4 +1,4 @@
-import { createAiHarness, directLlmRunner, type AgAiHarness, type AgAiHarnessSetupParams, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
+import { createAiHarness, directLlmRunner, type AgAiHarness, type AgAiHarnessSetupParams, type AgAiPromptStarter, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
 import { AgStudio, type AgRegistry } from "ag-studio-react";
 import { BarChart3, RefreshCw, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -7,6 +7,7 @@ import { get } from "../lib/api";
 import { AgStudioGeminiAdapter } from "../lib/agStudioGeminiAdapter";
 import { upsertTodayOverview } from "../lib/agStudioOverview";
 import { createPrepRecommendation } from "../lib/prepRecommendation";
+import { SalesInsightBoard } from "./SalesInsightBoard";
 
 type AnalyticsData = {
   overview: {
@@ -18,6 +19,7 @@ type AnalyticsData = {
     refundedOrders: number;
     lowStockItems: number;
   };
+  salesTrend: Array<{ date: string; netSales: number }>;
   items: Array<{
     itemName: string;
     unitPrice: number;
@@ -31,7 +33,20 @@ type AnalyticsData = {
 
 type Props = { shopKey: string; shopName: string; apiBase: string };
 
-const promptStarters: never[] = [];
+const promptStarters: AgAiPromptStarter[] = [
+  {
+    label: "Forecast tomorrow",
+    prompt: "Estimate tomorrow's net sales from the daily sales data. State the 7-day average calculation, call it an estimate, and give one concise operational recommendation. Do not create or change dashboard widgets.",
+  },
+  {
+    label: "What should I prep?",
+    prompt: "Review each menu item's seven-day demand and available stock. Give the three most useful preparation or restock actions, explaining the evidence. Do not create or change dashboard widgets.",
+  },
+  {
+    label: "Explain the trend",
+    prompt: "Summarize the daily sales trend in plain language. Mention any high or low day shown in the data and one thing to watch tomorrow. Do not create or change dashboard widgets.",
+  },
+];
 
 // The AG Studio defaults allow 100 rounds per agent. That is useful for open-ended
 // assistants, but an overview of a small market should resolve in a few tool calls.
@@ -96,6 +111,12 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
         name: "Menu performance",
         description: "Current available stock and units sold by menu item today and over the last seven days. Prices are in the shop currency.",
         data: result.items,
+      },
+      {
+        id: "daily_sales_trend",
+        name: "Daily net sales",
+        description: "Seven daily net-sales observations ending today. Use this source for short-term sales forecasts and sales trend charts; clearly label forecasts as estimates.",
+        data: result.salesTrend,
       },
     ],
   }) : undefined, [result, shopName]);
@@ -181,6 +202,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
       {overviewStatus && <p className="ag-analytics-status" role="status">{overviewStatus}</p>}
       {prepRecommendation && <p className="ag-analytics-status" role="status">{prepRecommendation}</p>}
       {loading && !data && <p className="ag-analytics-loading" role="status">Loading shop analytics…</p>}
+      {result && <SalesInsightBoard currency={result.overview.currency} salesTrend={result.salesTrend} items={result.items} />}
       {data && <div className="ag-analytics-studio">
         <AgStudio
           data={data}

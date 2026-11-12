@@ -108,6 +108,10 @@ test("AG Studio accepts extended conversation metadata before invoking its adapt
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);
     const owner = await createOwner(url, `studio-${suffix}`, `studio-${suffix}@example.test`);
+    const studioData = await json(`${url}/api/v1/dashboard/shops/${owner.shop.slug}/studio/data`, { headers: { cookie: owner.cookie } });
+    assert.equal(studioData.response.status, 200);
+    assert.equal(studioData.body.salesTrend.length, 7);
+    assert.deepEqual(studioData.body.salesTrend.map((point: { netSales: number }) => point.netSales), [0, 0, 0, 0, 0, 0, 0]);
     const result = await json(`${url}/api/v1/dashboard/shops/${owner.shop.slug}/studio/turn`, {
       method: "POST", headers: postHeaders(owner.cookie), body: JSON.stringify({
         input: Array.from({ length: 81 }, () => ({ kind: "input", type: "message", role: "user", content: [{ type: "text", text: "Show sales." }] })),

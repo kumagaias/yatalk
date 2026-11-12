@@ -4,6 +4,7 @@ import type { FirestoreDocument } from "./firestore-store.js";
 import { listProducts } from "./inventory.js";
 import type { OrderRow } from "./order-state.js";
 import { eventDayBounds, eventDayWindowBounds, type OrganizerFactsOptions } from "./analytics.js";
+import { dailySalesTrend } from "./sales-trend.js";
 
 type ShopDoc = FirestoreDocument & { currency: string };
 type LineDoc = FirestoreDocument & { product_id: string; display_name: string; quantity: number };
@@ -63,6 +64,7 @@ export async function organizerFacts(db: FirestoreDb, timeZone: string, now = ne
     products: products.map(({ id, name, stockOnHand, reserved, available, priceMinor }) => ({ id, name, stockOnHand, reserved, available, priceMinor })),
     unitsSold: [...units.values()].sort((left, right) => right.units_sold - left.units_sold || left.name.localeCompare(right.name)),
     unitsSoldLast7Days: salesWindow ? [...weeklyUnits.values()].sort((left, right) => right.units_sold - left.units_sold || left.name.localeCompare(right.name)) : [],
+    salesTrend: salesWindow ? dailySalesTrend(now, timeZone, 7, captured.map((order) => ({ capturedAt: order.capturedAt!, totalMinor: order.totalMinor, state: order.state }))) : [],
   };
 }
 

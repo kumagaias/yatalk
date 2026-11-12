@@ -70,6 +70,7 @@ export function managementOperations(db: Db, config: AppConfig, paypal: PayPalPr
         refundedOrders: facts.refundedOrderCount,
         lowStockItems: facts.lowStockCount,
       },
+      salesTrend: facts.salesTrend.map((point) => ({ date: point.date, netSales: point.netSalesMinor / divisor })),
       items: facts.products.map((product) => ({
         itemName: product.name,
         unitPrice: product.priceMinor / divisor,

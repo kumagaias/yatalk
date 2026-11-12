@@ -25,6 +25,8 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Allowed AG Studio's evolving built-in tool metadata through the bounded API boundary, then validate and filter it before Vertex. Seeded local tool calls now use Gemini's documented signature-validator marker, and the dashboard exposes a Stop control that cancels an active parent run and its delegates.
 - Replaced the fragile AI-driven “Today’s overview” starter with a deterministic AG Studio multi-KPI action. It reads AG Studio's live schema, creates or updates exactly one widget for net sales, paid orders, and low-stock items, and preserves its position rather than duplicating it. Free-form Gemini reporting remains available for ad-hoc questions.
 - Fixed the deterministic overview's Multi KPI field bindings by declaring a `sum` aggregation for each numeric metric. Added a deterministic preparation recommendation action and removed the two AI prompt starters that were exceeding AG Studio's tool-turn budget.
+- Added a deterministic Decision board above AG Studio: a seven-day daily net-sales line, a transparent next-day sales estimate based on the seven-day average, a stock-depletion projection for the most at-risk selling item, and prioritized preparation recommendations. The board stays useful when the optional Gemini/AG Studio chat is unavailable.
+- The Studio data source now includes daily net sales, and concise chat starters for a forecast, preparation actions, and trend explanation are available again. Forecast prompts explicitly require an estimate label and the calculation basis.
 
 ## Checks
 
@@ -49,6 +51,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Cloud Run revision `yatalk-dev-preview-00034-x5b` passed `/api/health` with deterministic daily-overview generation.
 - Production build and the full test suite passed for the Multi KPI aggregation and deterministic prep-recommendation regression tests.
 - Cloud Run revision `yatalk-dev-preview-00035-4rb` passed `/api/health`. In the owner dashboard, regenerating the saved overview replaced all three invalid bindings with `Net Sales (sum)`, `Paid Orders (sum)`, and `Low Stock Items (sum)`.
+- Full test suite passed: 120 passed, 2 skipped. Production build passed. Added coverage for local-time daily sales points, forecast math, stock projection, preparation priority, and the Studio trend API payload.
 
 ## Next steps
 
