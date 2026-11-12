@@ -104,6 +104,22 @@ test("an owner can delete only a confirmed shop", async () => {
   });
 });
 
+test("AG Studio accepts extended conversation metadata before invoking its adapter", async () => {
+  await withServer(new FakePayPal(), async (url) => {
+    const suffix = Math.random().toString(36).slice(2, 10);
+    const owner = await createOwner(url, `studio-${suffix}`, `studio-${suffix}@example.test`);
+    const result = await json(`${url}/api/v1/dashboard/shops/${owner.shop.slug}/studio/turn`, {
+      method: "POST", headers: postHeaders(owner.cookie), body: JSON.stringify({
+        input: Array.from({ length: 81 }, () => ({ kind: "input", type: "message", role: "user", content: [{ type: "text", text: "Show sales." }] })),
+        instructions: null, tools: null, toolChoice: null,
+        responseFormat: { type: "text", clientVersion: "3.1" },
+      }),
+    });
+    assert.equal(result.response.status, 503);
+    assert.equal(result.body.error.code, "assistant_unavailable");
+  });
+});
+
 test("shop owners can manage only their own orders, inventory, and summaries", async () => {
   await withServer(new FakePayPal(), async (url) => {
     const suffix = Math.random().toString(36).slice(2, 10);

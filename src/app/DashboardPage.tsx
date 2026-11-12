@@ -13,6 +13,7 @@ import { OwnerAssistantPanel } from "../components/OwnerAssistantPanel";
 import { ShopImageCard } from "../components/ShopImageCard";
 import { AgAnalyticsDashboard } from "../components/AgAnalyticsDashboard";
 import { CounterPaymentQueue } from "../components/CounterPaymentQueue";
+import { ShopDangerZone } from "../components/ShopDangerZone";
 import { useScreenWakeLock } from "../lib/use-screen-wake-lock";
 import { dashboardApiBase } from "../lib/dashboard-api";
 import type { MenuExtraction } from "../../shared/schemas.js";
@@ -255,6 +256,7 @@ export function DashboardPage() {
               <section className="dashboard-card service-note"><div className="section-heading"><div><p className="eyebrow">Pickup reminder</p><h2>Keep the line moving</h2></div><CircleHelp size={20} aria-hidden="true" /></div><p>Confirm the pickup number with the guest before marking an order collected. Only paid, uncollected orders can be refunded.</p><Link to={shopUrl} className="text-button">Preview the market <ArrowUpRight size={14} aria-hidden="true" /></Link></section>
             </div>
           </div>
+          {shopSlug && summary.shop && <ShopDangerZone name={summary.shop.name} slug={shopSlug} onDeleted={() => navigate("/dashboard/shops", { replace: true })} />}
         </>}
       </main>
     </div>

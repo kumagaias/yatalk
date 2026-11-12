@@ -17,6 +17,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Added a shop-owner Danger zone, confirmed deletion endpoint, QR counter link, and separated sign-in recovery links.
 - Updated the preview Cloud Run image configuration.
 - Expanded the public README with PayPal, Gemini, AG Studio, and Resend setup details; MIT license is already included at the repository root.
+- Accepted AG Studio 3.1 conversation metadata and longer tool histories, and moved the confirmed shop-delete control to the bottom of the individual shop dashboard.
 
 ## Checks
 

@@ -21,24 +21,24 @@ import { detectMenuImageMimeType, MAX_MENU_IMAGE_BYTES, MENU_IMAGE_MIME_TYPES, t
 
 const menuScansInFlight = new Set<string>();
 const studioTurnRequestSchema = z.object({
-  input: z.array(z.unknown()).max(80),
-  instructions: z.string().max(16_000).optional(),
+  input: z.array(z.unknown()).max(240),
+  instructions: z.string().max(64_000).nullish().transform((value) => value ?? undefined),
   tools: z.array(z.object({
     name: z.string().min(1).max(128),
     description: z.string().max(4_000),
-    parameters: z.record(z.string(), z.unknown()),
+    parameters: z.unknown(),
     kind: z.enum(["client", "server", "provided"]).optional(),
     provider: z.unknown().optional(),
-  }).strict()).max(64).optional(),
+  }).passthrough()).max(128).nullish().transform((value) => value ?? undefined),
   toolChoice: z.union([
     z.enum(["auto", "none", "required"]),
     z.object({ name: z.string().min(1).max(128) }).strict(),
-  ]).optional(),
+  ]).nullish().transform((value) => value ?? undefined),
   responseFormat: z.union([
-    z.object({ type: z.literal("text") }).strict(),
-    z.object({ type: z.literal("json"), name: z.string().min(1).max(128), description: z.string().max(1_000).optional(), schema: z.record(z.string(), z.unknown()) }).strict(),
+    z.object({ type: z.literal("text") }).passthrough(),
+    z.object({ type: z.literal("json"), name: z.string().min(1).max(128), description: z.string().max(1_000).optional(), schema: z.record(z.string(), z.unknown()) }).passthrough(),
   ]),
-}).strict();
+}).passthrough();
 
 export function managementOperations(db: Db, config: AppConfig, paypal: PayPalProvider, ai: AiProvider,
   shopIdOf: (request: Request) => string, actorIdOf: (request: Request) => string | null = () => null,

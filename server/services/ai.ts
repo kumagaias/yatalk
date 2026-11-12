@@ -240,7 +240,8 @@ export class GeminiVertex implements AiProvider {
     const { contents, systemMessages } = conversationForGemini(request.input);
     const declarations: FunctionDeclaration[] = (request.tools ?? [])
       .filter((tool) => tool.kind === undefined || tool.kind === "client")
-      .map(({ name, description, parameters }) => ({ name, description, parametersJsonSchema: parameters }));
+      .map(({ name, description, parameters }) => ({ name, description,
+        parametersJsonSchema: isRecord(parameters) ? parameters : { type: "object", properties: {} } }));
     const toolConfig = declarations.length === 0 ? undefined : {
       functionCallingConfig: {
         mode: request.toolChoice === "none" ? FunctionCallingConfigMode.NONE :
