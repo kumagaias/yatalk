@@ -25,7 +25,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Targeted tenant and Gemini tests passed.
 - Production build passed.
 - Gitleaks staged scan passed.
-- Cloud Run revision `yatalk-dev-preview-00022-lll` passed `/api/health`.
+- Cloud Run revision `yatalk-dev-preview-00023-2c4` passed `/api/health` with the AG Studio compatibility fix.
 
 ## Next steps
 
