@@ -130,12 +130,21 @@ test("Gemini retries one transient AG Studio turn failure", async () => {
   assert.equal(result.output[0]?.type, "message");
 });
 
-test("Gemini completes a tool-result follow-up when the provider is temporarily unavailable", async () => {
-  const provider = new GeminiVertex(config, async () => "", async () => { throw new Error("temporary provider failure"); });
-  const result = await provider.runStudioTurn!({
-    input: [{ type: "function_call_output", callId: "chart", output: "{\"success\":true}", status: "completed" }],
-    responseFormat: { type: "text" },
+test("Gemini restores a tool thought signature when AG Studio omits it on the next turn", async () => {
+  const requests: Parameters<GeminiStudioModelCall>[0][] = [];
+  const provider = new GeminiVertex(config, async () => "", async (request) => {
+    requests.push(request);
+    return requests.length === 1
+      ? { candidates: [{ content: { parts: [{ functionCall: { id: "chart-call", name: "create_chart", args: {} }, thoughtSignature: "server-saved-signature" }] } }] } as never
+      : { text: "The chart is ready." } as never;
+  });
+  await provider.runStudioTurn!({ input: [], responseFormat: { type: "text" } } as never);
+  await provider.runStudioTurn!({
+    input: [
+      { kind: "output", type: "function_call", callId: "chart-call", name: "create_chart", arguments: "{}" },
+      { type: "function_call_output", callId: "chart-call", output: "{\"success\":true}", status: "completed" },
+    ], responseFormat: { type: "text" },
   } as never);
-  assert.equal(result.status, "completed");
-  assert.equal(result.output[0]?.type, "message");
+  const contents = requests[1]?.contents as Array<{ role: string; parts: Array<{ thoughtSignature?: string }> }>;
+  assert.equal(contents[0]?.parts[0]?.thoughtSignature, "server-saved-signature");
 });

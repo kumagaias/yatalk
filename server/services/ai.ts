@@ -118,6 +118,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const thoughtSignatureTtlMs = 15 * 60_000;
+const thoughtSignatures = new Map<string, { value: string; expiresAt: number }>();
+
+function rememberThoughtSignature(callId: string, value: string): void {
+  const now = Date.now();
+  for (const [key, entry] of thoughtSignatures) if (entry.expiresAt <= now) thoughtSignatures.delete(key);
+  thoughtSignatures.set(callId, { value, expiresAt: now + thoughtSignatureTtlMs });
+}
+
+function savedThoughtSignature(callId: string): string | undefined {
+  const entry = thoughtSignatures.get(callId);
+  if (!entry || entry.expiresAt <= Date.now()) {
+    thoughtSignatures.delete(callId);
+    return undefined;
+  }
+  return entry.value;
+}
+
 function conversationForGemini(input: AgAiConversationItem[]): { contents: Content[]; systemMessages: string[] } {
   const contents: Content[] = [];
   const systemMessages: string[] = [];
@@ -162,8 +180,10 @@ function conversationForGemini(input: AgAiConversationItem[]): { contents: Conte
       } catch { /* Leave malformed model history as an empty argument object. */ }
       flushResponses();
       callNames.set(candidate.callId, candidate.name);
+      const thoughtSignature = typeof candidate.thoughtSignature === "string"
+        ? candidate.thoughtSignature : savedThoughtSignature(candidate.callId);
       pendingCalls.push({ functionCall: { id: candidate.callId, name: candidate.name, args },
-        ...(typeof candidate.thoughtSignature === "string" ? { thoughtSignature: candidate.thoughtSignature } : {}) });
+        ...(thoughtSignature ? { thoughtSignature } : {}) });
       continue;
     }
     if (candidate.type === "function_call_output" && typeof candidate.callId === "string" && typeof candidate.output === "string") {
@@ -186,10 +206,6 @@ function conversationForGemini(input: AgAiConversationItem[]): { contents: Conte
   return { contents, systemMessages };
 }
 
-function hasToolResult(input: AgAiConversationItem[]): boolean {
-  return input.some((item) => isRecord(item) && item.type === "function_call_output" && typeof item.output === "string");
-}
-
 function studioOutputItems(response: GenerateContentResponse): AgAiOutputItem[] {
   const output: AgAiOutputItem[] = [];
   const text = response.text?.trim();
@@ -205,6 +221,7 @@ function studioOutputItems(response: GenerateContentResponse): AgAiOutputItem[] 
   for (const { call, thoughtSignature } of calls) {
     if (!call.name) continue;
     const callId = call.id ?? randomUUID();
+    if (thoughtSignature) rememberThoughtSignature(callId, thoughtSignature);
     const outputCall = {
       id: randomUUID(), kind: "output", type: "function_call", callId,
       name: call.name, arguments: JSON.stringify(call.args ?? {}), status: "completed",
@@ -242,7 +259,6 @@ export class GeminiVertex implements AiProvider {
 
   async runStudioTurn(request: AgLlmRequest): Promise<AgLlmResponse> {
     const { contents, systemMessages } = conversationForGemini(request.input);
-    const completedToolStep = hasToolResult(request.input);
     const declarations: FunctionDeclaration[] = (request.tools ?? [])
       .filter((tool) => tool.kind === undefined || tool.kind === "client")
       .map(({ name, description, parameters }) => ({ name, description,
@@ -284,15 +300,8 @@ export class GeminiVertex implements AiProvider {
       } catch (error) {
         if (attempt === 0) continue;
         if (error instanceof ProviderError) throw error;
-        break;
+        throw new ProviderError("gemini", "ag_studio_turn", false);
       }
-    }
-    if (completedToolStep) {
-      return {
-        id: randomUUID(), createdAt: Date.now(), status: "completed", model: this.model,
-        output: [{ id: randomUUID(), kind: "output", type: "message", role: "assistant", status: "completed",
-          content: [{ type: "text", text: "The dashboard tool step is complete. Review the updated report, then ask if you would like a refinement.", annotations: [] }] }],
-      };
     }
     throw new ProviderError("gemini", "ag_studio_turn", false);
   }
