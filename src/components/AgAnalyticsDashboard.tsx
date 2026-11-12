@@ -30,15 +30,15 @@ type AnalyticsData = {
 type Props = { shopKey: string; shopName: string; apiBase: string };
 
 const promptStarters = [
-  { label: "Today's overview", prompt: "Build a shop overview for today with net sales, gross sales, paid orders, refunds, and low stock." },
-  { label: "What should I prep?", prompt: "Compare each menu item's units sold in the last 7 days with its available stock. Show which items need preparation attention and explain the data." },
-  { label: "Items sold today", prompt: "Create a chart of units sold today by menu item, with a table showing available stock alongside it." },
+  { label: "Today's overview", prompt: "Create one compact sales overview visual for today. Include net sales, paid orders, and low stock in this single visual. Do not create a multi-widget dashboard." },
+  { label: "What should I prep?", prompt: "Compare each menu item's units sold in the last 7 days with available stock, then give a concise written preparation recommendation. Do not create or change dashboard widgets." },
+  { label: "Items sold today", prompt: "Create one bar chart of units sold today by menu item. Do not add a table or other widgets." },
 ];
 
 // The AG Studio defaults allow 100 rounds per agent. That is useful for open-ended
 // assistants, but an overview of a small market should resolve in a few tool calls.
 const agentTurnLimits: Record<string, number> = {
-  lead: 5,
+  lead: 6,
   data: 2,
   page: 2,
   planning: 2,
