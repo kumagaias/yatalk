@@ -56,6 +56,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Full test suite passed: 120 passed, 2 skipped. Production build passed. Added coverage for local-time daily sales points, forecast math, stock projection, preparation priority, and the Studio trend API payload.
 - Cloud Run revision `yatalk-dev-preview-00036-d6m` passed `/api/health` with the deterministic sales-and-stock Decision board and daily-sales Studio data source.
 - Full test suite passed: 120 passed, 2 skipped. Production build passed. Added direct-answer and tenant coverage for the next paid pickup menu.
+- Cloud Run revision `yatalk-dev-preview-00037-rw9` passed `/api/health` with the AG Studio-native overview board and the owner voice analytics assistant.
 
 ## Next steps
 
