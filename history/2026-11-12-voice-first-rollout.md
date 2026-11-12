@@ -23,8 +23,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Added safe AG Studio provider-failure classification (without provider text or request data) to distinguish Vertex tool-protocol errors from transient quota errors in production logs.
 - Restored Gemini's required parallel tool-call shape after AG Studio interleaves each call with its result: all calls now precede all ordered responses, while sequential signed calls remain separate steps.
 - Allowed AG Studio's evolving built-in tool metadata through the bounded API boundary, then validate and filter it before Vertex. Seeded local tool calls now use Gemini's documented signature-validator marker, and the dashboard exposes a Stop control that cancels an active parent run and its delegates.
-- Bounded AG Studio's default per-agent execution loops for the shop dashboard (lead: 6 turns; data, page, and planning: 3; widget: 5). The library default is 100 turns per agent, which caused a single overview request to make an excessive number of sequential Gemini calls and hit quota limits. Widget setup needs four turns to read its schema, configure, verify, and complete, plus one corrective pass when its first configuration raises a health check.
-- Refined the suggested analytics prompts to one visual (or a text-only recommendation) so they finish within the bounded loops instead of attempting a multi-widget dashboard. The lead agent now has one additional finalization turn.
+- Replaced the fragile AI-driven “Today’s overview” starter with a deterministic AG Studio multi-KPI action. It reads AG Studio's live schema, creates or updates exactly one widget for net sales, paid orders, and low-stock items, and preserves its position rather than duplicating it. Free-form Gemini reporting remains available for ad-hoc questions.
 
 ## Checks
 
@@ -45,6 +44,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Production build passed for the bounded AG Studio agent loops.
 - Production build and full test suite passed for the narrow analytics prompt flows.
 - Production build and full test suite passed for the corrected delegated-agent turn budgets.
+- Production build and full test suite passed for the deterministic daily-overview widget and its in-place update behavior.
 
 ## Next steps
 

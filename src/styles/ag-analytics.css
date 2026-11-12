@@ -11,6 +11,7 @@
 .ag-analytics-loading, .ag-analytics-note { margin: 0; padding: 18px 22px; color: var(--muted); }
 .ag-analytics-error { display: flex; align-items: center; gap: 12px; padding: 12px 22px; color: #7f261f; background: #f8e9e5; }
 .ag-analytics-error .text-button { color: #7f261f; }
+.ag-analytics-status { margin: 0; padding: 10px 22px; color: #286e5d; background: #e9f3ef; }
 
 @media (max-width: 720px) {
   .ag-analytics-heading { flex-direction: column; padding: 17px 15px; }
@@ -18,4 +19,5 @@
   .ag-analytics-actions { gap: 17px; }
   .ag-analytics-studio { height: 72vh; min-height: 520px; }
   .ag-analytics-error { align-items: flex-start; flex-direction: column; padding: 12px 15px; }
+  .ag-analytics-status { padding: 10px 15px; }
 }

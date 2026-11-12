@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CurrencyCode } from "../../shared/currency.js";
 import { get } from "../lib/api";
 import { AgStudioGeminiAdapter } from "../lib/agStudioGeminiAdapter";
+import { upsertTodayOverview } from "../lib/agStudioOverview";
 
 type AnalyticsData = {
   overview: {
@@ -30,7 +31,6 @@ type AnalyticsData = {
 type Props = { shopKey: string; shopName: string; apiBase: string };
 
 const promptStarters = [
-  { label: "Today's overview", prompt: "Create one compact sales overview visual for today. Include net sales, paid orders, and low stock in this single visual. Do not create a multi-widget dashboard." },
   { label: "What should I prep?", prompt: "Compare each menu item's units sold in the last 7 days with available stock, then give a concise written preparation recommendation. Do not create or change dashboard widgets." },
   { label: "Items sold today", prompt: "Create one bar chart of units sold today by menu item. Do not add a table or other widgets." },
 ];
@@ -52,7 +52,9 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [aiRunning, setAiRunning] = useState(false);
+  const [overviewStatus, setOverviewStatus] = useState("");
   const harnessRef = useRef<AgAiHarness | null>(null);
+  const studioApiRef = useRef<AgStudioApi | null>(null);
   const storageKey = `yatalk.ag-studio.v1.${shopKey}`;
   const [initialState] = useState<AgReportState<AgRegistry> | undefined>(() => readSavedState(storageKey));
   const adapter = useMemo(() => new AgStudioGeminiAdapter(`${apiBase}/studio/turn`), [apiBase]);
@@ -124,6 +126,24 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
     window.setTimeout(syncAiStatus, 0);
   }, [syncAiStatus]);
 
+  const createTodayOverview = useCallback(() => {
+    const studioApi = studioApiRef.current;
+    if (!studioApi) {
+      setOverviewStatus("The report is still loading. Try again in a moment.");
+      return;
+    }
+
+    try {
+      studioApi.setState(upsertTodayOverview(studioApi.getAiContext().schema(), studioApi.getState()), {
+        historyLabel: "Generated today's overview",
+        source: { type: "api" },
+      });
+      setOverviewStatus("Today's overview is ready. You can refine it in AG Studio.");
+    } catch (cause) {
+      setOverviewStatus(cause instanceof Error ? cause.message : "The overview could not be created.");
+    }
+  }, []);
+
   const onStateUpdated = useCallback((event: AgStudioStateUpdatedEvent) => {
     if (!event.durable) return;
     try { window.localStorage.setItem(storageKey, JSON.stringify(event.state)); }
@@ -136,9 +156,12 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
         <div>
           <p className="eyebrow">AG Studio · Gemini</p>
           <h2 id="ag-analytics-heading"><BarChart3 size={22} aria-hidden="true" />Sales &amp; stock insights</h2>
-          <p>Ask Gemini to build a visual report from this shop’s live aggregates, then refine it with AG Studio.</p>
+          <p>Create a reliable daily overview, or ask Gemini for an ad-hoc report from this shop’s live aggregates.</p>
         </div>
         <div className="ag-analytics-actions">
+          <button className="text-button" type="button" onClick={createTodayOverview} disabled={!data}>
+            <BarChart3 size={15} aria-hidden="true" />Generate overview
+          </button>
           <button className="text-button" type="button" onClick={stopAi} disabled={!aiRunning}>
             <Square size={14} aria-hidden="true" />Stop
           </button>
@@ -148,6 +171,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
         </div>
       </div>
       {error && <div className="ag-analytics-error" role="alert">{error} <button className="text-button" type="button" onClick={() => void loadData()}>Retry</button></div>}
+      {overviewStatus && <p className="ag-analytics-status" role="status">{overviewStatus}</p>}
       {loading && !data && <p className="ag-analytics-loading" role="status">Loading shop analytics…</p>}
       {data && <div className="ag-analytics-studio">
         <AgStudio
@@ -156,6 +180,8 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
           ai={configureAi}
           initialState={initialState}
           onStateUpdated={onStateUpdated}
+          onStudioReady={({ api }) => { studioApiRef.current = api; }}
+          onStudioPreDestroyed={() => { studioApiRef.current = null; }}
           studioId={`yatalk-${shopKey}`}
         />
       </div>}
