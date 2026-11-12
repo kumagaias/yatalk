@@ -42,7 +42,9 @@ const agentTurnLimits: Record<string, number> = {
   data: 3,
   page: 3,
   planning: 3,
-  widget: 4,
+  // A valid widget can need one corrective configure pass after AG Studio reports
+  // health checks, before its final verification and completion.
+  widget: 5,
 };
 
 export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
