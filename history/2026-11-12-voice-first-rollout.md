@@ -52,6 +52,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Production build and the full test suite passed for the Multi KPI aggregation and deterministic prep-recommendation regression tests.
 - Cloud Run revision `yatalk-dev-preview-00035-4rb` passed `/api/health`. In the owner dashboard, regenerating the saved overview replaced all three invalid bindings with `Net Sales (sum)`, `Paid Orders (sum)`, and `Low Stock Items (sum)`.
 - Full test suite passed: 120 passed, 2 skipped. Production build passed. Added coverage for local-time daily sales points, forecast math, stock projection, preparation priority, and the Studio trend API payload.
+- Cloud Run revision `yatalk-dev-preview-00036-d6m` passed `/api/health` with the deterministic sales-and-stock Decision board and daily-sales Studio data source.
 
 ## Next steps
 
