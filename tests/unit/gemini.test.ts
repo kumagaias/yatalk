@@ -148,3 +148,10 @@ test("Gemini restores a tool thought signature when AG Studio omits it on the ne
   const contents = requests[1]?.contents as Array<{ role: string; parts: Array<{ thoughtSignature?: string }> }>;
   assert.equal(contents[0]?.parts[0]?.thoughtSignature, "server-saved-signature");
 });
+
+test("Gemini classifies a missing tool thought signature without logging provider text", async () => {
+  const error = Object.assign(new Error("Function call is missing a thought_signature."), { status: 400 });
+  const provider = new GeminiVertex(config, async () => "", async () => { throw error; });
+  await assert.rejects(provider.runStudioTurn!({ input: [], responseFormat: { type: "text" } } as never),
+    (cause: unknown) => cause instanceof ProviderError && cause.stage === "ag_studio_thought_signature" && cause.httpStatus === 400);
+});

@@ -136,6 +136,15 @@ function savedThoughtSignature(callId: string): string | undefined {
   return entry.value;
 }
 
+function studioProviderError(error: unknown): ProviderError {
+  const status = isRecord(error) && typeof error.status === "number" ? error.status : undefined;
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  const stage = message.includes("thought_signature") ? "ag_studio_thought_signature" :
+    message.includes("function response") ? "ag_studio_function_response" :
+      status === 429 || message.includes("quota") ? "ag_studio_rate_limited" : "ag_studio_turn";
+  return new ProviderError("gemini", stage, status !== undefined && status >= 400 && status < 500, status);
+}
+
 function conversationForGemini(input: AgAiConversationItem[]): { contents: Content[]; systemMessages: string[] } {
   const contents: Content[] = [];
   const systemMessages: string[] = [];
@@ -300,7 +309,7 @@ export class GeminiVertex implements AiProvider {
       } catch (error) {
         if (attempt === 0) continue;
         if (error instanceof ProviderError) throw error;
-        throw new ProviderError("gemini", "ag_studio_turn", false);
+        throw studioProviderError(error);
       }
     }
     throw new ProviderError("gemini", "ag_studio_turn", false);
