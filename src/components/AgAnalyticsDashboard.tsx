@@ -39,10 +39,10 @@ const promptStarters = [
 // assistants, but an overview of a small market should resolve in a few tool calls.
 const agentTurnLimits: Record<string, number> = {
   lead: 6,
-  data: 2,
-  page: 2,
-  planning: 2,
-  widget: 2,
+  data: 3,
+  page: 3,
+  planning: 3,
+  widget: 4,
 };
 
 export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
