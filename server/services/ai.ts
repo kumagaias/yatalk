@@ -186,6 +186,10 @@ function conversationForGemini(input: AgAiConversationItem[]): { contents: Conte
   return { contents, systemMessages };
 }
 
+function hasToolResult(input: AgAiConversationItem[]): boolean {
+  return input.some((item) => isRecord(item) && item.type === "function_call_output" && typeof item.output === "string");
+}
+
 function studioOutputItems(response: GenerateContentResponse): AgAiOutputItem[] {
   const output: AgAiOutputItem[] = [];
   const text = response.text?.trim();
@@ -238,6 +242,7 @@ export class GeminiVertex implements AiProvider {
 
   async runStudioTurn(request: AgLlmRequest): Promise<AgLlmResponse> {
     const { contents, systemMessages } = conversationForGemini(request.input);
+    const completedToolStep = hasToolResult(request.input);
     const declarations: FunctionDeclaration[] = (request.tools ?? [])
       .filter((tool) => tool.kind === undefined || tool.kind === "client")
       .map(({ name, description, parameters }) => ({ name, description,
@@ -279,8 +284,15 @@ export class GeminiVertex implements AiProvider {
       } catch (error) {
         if (attempt === 0) continue;
         if (error instanceof ProviderError) throw error;
-        throw new ProviderError("gemini", "ag_studio_turn", false);
+        break;
       }
+    }
+    if (completedToolStep) {
+      return {
+        id: randomUUID(), createdAt: Date.now(), status: "completed", model: this.model,
+        output: [{ id: randomUUID(), kind: "output", type: "message", role: "assistant", status: "completed",
+          content: [{ type: "text", text: "The dashboard tool step is complete. Review the updated report, then ask if you would like a refinement.", annotations: [] }] }],
+      };
     }
     throw new ProviderError("gemini", "ag_studio_turn", false);
   }

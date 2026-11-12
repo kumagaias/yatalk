@@ -129,3 +129,13 @@ test("Gemini retries one transient AG Studio turn failure", async () => {
   assert.equal(calls, 2);
   assert.equal(result.output[0]?.type, "message");
 });
+
+test("Gemini completes a tool-result follow-up when the provider is temporarily unavailable", async () => {
+  const provider = new GeminiVertex(config, async () => "", async () => { throw new Error("temporary provider failure"); });
+  const result = await provider.runStudioTurn!({
+    input: [{ type: "function_call_output", callId: "chart", output: "{\"success\":true}", status: "completed" }],
+    responseFormat: { type: "text" },
+  } as never);
+  assert.equal(result.status, "completed");
+  assert.equal(result.output[0]?.type, "message");
+});

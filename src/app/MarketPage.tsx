@@ -186,18 +186,18 @@ function ShopMarketPage({ shopSlug, ownerSlug }: { shopSlug?: string; ownerSlug?
         {configError && <div className="setup-banner" role="status"><CircleHelp size={17} aria-hidden="true" />{configError}</div>}
         {counterMode ? <CounterOrderQr shopName={currentName} shopUrl={shopOrderUrl} /> : <>
           <ShopCover shopName={currentName} shopSlug={shopSlug ?? "little-harbor-market"} ownerSlug={ownerSlug} />
-          <ProductCarousel products={products} disabled={cartMutationBusy || cart === null} onAdd={addProduct} />
+          <ProductCarousel products={products} disabled={checkoutActive || cartMutationBusy || cart === null} onAdd={addProduct} />
           <div className="customer-order-layout">
             <button className={`menu-drawer-backdrop${menuOpen ? " open" : ""}`} type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
             <aside className={`menu-drawer${menuOpen ? " open" : ""}`} id="market-menu-drawer" aria-label="Menu">
               <button className="menu-drawer-close" type="button" onClick={() => setMenuOpen(false)}>Close</button>
-              <MenuSection products={products} loading={loading && products.length === 0} busy={productBusy} mutationBusy={cartMutationBusy || cart === null} onAdd={addProduct} />
+              <MenuSection products={products} loading={loading && products.length === 0} busy={productBusy} mutationBusy={checkoutActive || cartMutationBusy || cart === null} onAdd={addProduct} />
             </aside>
             <aside className="market-sidebar" aria-label="Voice order and checkout">
-            <ChatPanel cart={cart} mutationBusy={cartMutationBusy} onSend={sendChat}
+            <ChatPanel cart={cart} mutationBusy={cartMutationBusy} orderLocked={checkoutActive} onSend={sendChat}
               voiceConversation onFinishOrder={finishVoiceOrder} />
             <CartPanel
-              cart={cart} config={config} busy={cartMutationBusy || loading} error={cartError || cartBusyError}
+              cart={cart} config={config} busy={checkoutActive || cartMutationBusy || loading} error={cartError || cartBusyError}
               onChange={updateLine} onClear={clearCart} onRetry={retryCart} onCart={setCurrentCart} kioskMode={counterMode}
               confirmOrderKey={confirmOrderKey} onCheckoutActiveChange={setCheckoutActive}
             />

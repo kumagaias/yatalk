@@ -14,11 +14,12 @@ type Props = {
   onSend: (message: string, history: ChatMessage[]) => Promise<ChatResponse>;
   voiceConversation?: boolean;
   onFinishOrder?: () => void;
+  orderLocked?: boolean;
 };
 const MAX_AUDIO_BYTES = 256 * 1024;
 const RECORDING_LIMIT_MS = 19_800;
 
-export function ChatPanel({ cart, mutationBusy, onSend, voiceConversation = false, onFinishOrder }: Props) {
+export function ChatPanel({ cart, mutationBusy, onSend, voiceConversation = false, onFinishOrder, orderLocked = false }: Props) {
   const speechLanguage = document.documentElement.lang.toLowerCase().startsWith("ja") ? "ja-JP" : "en-US";
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", content: speechLanguage === "ja-JP" ? "いらっしゃいませ。ご注文をどうぞ。" : "Welcome! What would you like today?" },
@@ -281,7 +282,7 @@ export function ChatPanel({ cart, mutationBusy, onSend, voiceConversation = fals
         onFinishOrder={() => Boolean(onFinishOrder?.())}
         onUnsupported={() => setManualEntryOpen(true)}
         speechLanguage={speechLanguage}
-        disabled={busy || mutationBusy}
+        disabled={busy || mutationBusy || orderLocked}
       />}
       {voiceConversation && <button className="text-button manual-entry-toggle" type="button" onClick={() => setManualEntryOpen((open) => !open)}>
         {manualEntryOpen ? "Hide text order" : "Type an order instead"}
@@ -291,12 +292,12 @@ export function ChatPanel({ cart, mutationBusy, onSend, voiceConversation = fals
       {voiceError && <p className="voice-error" role="alert">{voiceError}</p>}
       {(!voiceConversation || manualEntryOpen) && <form className="chat-composer" onSubmit={submit}>
         <label className="sr-only" htmlFor="chat-input">Describe what you’d like</label>
-        <textarea id="chat-input" rows={2} maxLength={800} value={value} onChange={(event) => setValue(event.target.value)} placeholder="What are you in the mood for?" disabled={mutationBusy || busy || transcribing || !cart} />
+        <textarea id="chat-input" rows={2} maxLength={800} value={value} onChange={(event) => setValue(event.target.value)} placeholder="What are you in the mood for?" disabled={mutationBusy || busy || transcribing || orderLocked || !cart} />
         <button className={`voice-button${recording ? " recording" : ""}`} type="button" onClick={() => void toggleRecording()}
-          aria-label={recording ? "Stop recording" : "Record an order"} aria-pressed={recording} disabled={busy || transcribing || (!recording && mutationBusy) || !cart}>
+          aria-label={recording ? "Stop recording" : "Record an order"} aria-pressed={recording} disabled={busy || transcribing || (!recording && (mutationBusy || orderLocked)) || !cart}>
           {recording ? <MicOff size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
         </button>
-        <button className="send-button" type="submit" aria-label="Send message" disabled={!value.trim() || mutationBusy || busy || transcribing || recording || !cart}><ArrowUp size={20} aria-hidden="true" /></button>
+        <button className="send-button" type="submit" aria-label="Send message" disabled={!value.trim() || mutationBusy || busy || transcribing || recording || orderLocked || !cart}><ArrowUp size={20} aria-hidden="true" /></button>
       </form>}
       <p className="chat-note">{voiceConversation ? "Voice recognition uses your browser. Typed and recognized text is sent to Yatalk to build your order." : "Audio is sent to Google Cloud for transcription. Yatalk does not store recordings. Review the text before sending."}</p>
     </section>
