@@ -9,8 +9,10 @@ const schema: AgAiSchemaMeta = {
     name: "Today's overview",
     reference: "@table[today_overview]",
     fields: [
+      field("today_overview.grossSales", "Gross Sales"),
       field("today_overview.netSales", "Net Sales"),
       field("today_overview.paidOrders", "Paid Orders"),
+      field("today_overview.refundedOrders", "Refunded Orders"),
       field("today_overview.lowStockItems", "Low Stock Items"),
     ],
   }, {
@@ -24,7 +26,11 @@ const schema: AgAiSchemaMeta = {
     reference: "@table[menu_performance]",
     fields: [
       field("menu_performance.itemName", "Item Name"),
+      field("menu_performance.unitPrice", "Unit Price"),
+      field("menu_performance.stockOnHand", "Stock On Hand"),
+      field("menu_performance.reservedUnits", "Reserved Units"),
       field("menu_performance.availableUnits", "Available Units"),
+      field("menu_performance.unitsSoldToday", "Units Sold Today"),
       field("menu_performance.unitsSoldLast7Days", "Units Sold Last7Days"),
     ],
   }],
@@ -87,10 +93,14 @@ test("chart presets add one full-width editable chart at a time", () => {
 
 test("dashboard templates start separate reports with the requested layout", () => {
   const operations = createDashboardTemplate(schema, "operations");
+  const detailed = createDashboardTemplate(schema, "detailed");
   const sales = createDashboardTemplate(schema, "sales");
   const inventory = createDashboardTemplate(schema, "inventory");
 
   assert.equal(operations.pages[0]?.widgets?.["yatalk-today-overview"]?.type, "multi-kpi");
+  assert.equal(Object.keys(detailed.pages[0]?.widgets ?? {}).length, 10);
+  assert.equal(detailed.pages[0]?.widgets?.["detail-daily-sales"]?.type, "line-chart");
+  assert.deepEqual(detailed.pages[0]?.widgetLayout?.["detail-prices"], { xTrack: 0, yTrack: 27, xSpan: 24, ySpan: 10 });
   assert.equal(sales.pages[0]?.widgets?.["yatalk-daily-sales-trend"]?.type, "line-chart");
   assert.equal(inventory.pages[0]?.widgets?.["yatalk-stock-demand-comparison"]?.type, "bar-chart-grouped");
 });

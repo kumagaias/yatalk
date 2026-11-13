@@ -34,8 +34,8 @@ type Props = { shopKey: string; shopName: string; apiBase: string };
 
 const promptStarters: AgAiPromptStarter[] = [
   {
-    label: "New dashboard",
-    prompt: "Create a new named Operations dashboard called Daily operations. Use the create_dashboard tool, then explain what it contains.",
+    label: "10-widget dashboard",
+    prompt: "Create a new named Detailed dashboard called Operations command center. Use the create_dashboard tool exactly once with the detailed template. It must create all ten widgets immediately, then summarize the dashboard.",
   },
   {
     label: "Forecast tomorrow",
@@ -161,7 +161,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
     const studioApi = studioApiRef.current;
     if (!studioApi) throw new Error("The report is still loading. Try again in a moment.");
     const id = `dashboard-${crypto.randomUUID()}`;
-    const fallbackName = template === "operations" ? "Operations dashboard" : template === "sales" ? "Sales dashboard" : "Inventory dashboard";
+    const fallbackName = template === "detailed" ? "Operations command center" : template === "operations" ? "Operations dashboard" : template === "sales" ? "Sales dashboard" : "Inventory dashboard";
     const name = normalizeDashboardName(requestedName, fallbackName);
     const state = collapseEditorPanels(createDashboardTemplate(studioApi.getAiContext().schema(), template));
     const next = {
@@ -181,7 +181,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
       description: "Create a separate named dashboard for this shop. Use this when the user asks for a new dashboard or report, not when they only want to modify the dashboard already open.",
       params: (shape) => shape.object({
         name: shape.string({ description: "Short dashboard name" }),
-        template: shape.enum(["operations", "sales", "inventory"] as const, { description: "operations combines KPIs, daily sales, and stock demand; sales is a daily line chart; inventory compares available stock and seven-day demand" }),
+        template: shape.enum(["detailed", "operations", "sales", "inventory"] as const, { description: "detailed immediately creates a 10-widget operations command center; operations combines three widgets; sales is a daily line chart; inventory compares available stock and seven-day demand" }),
       }),
       execute: (args, context) => {
         try {
@@ -197,7 +197,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
         const isLead = agent.id === "lead";
         return directLlmRunner({
           ...agent,
-          instructions: isLead ? (context, agentParams) => `${agent.instructions?.(context, agentParams) ?? ""}\n\nWhen a user asks to create a new dashboard, call create_dashboard exactly once before discussing or refining it. Choose the closest template and keep the name concise.` : agent.instructions,
+          instructions: isLead ? (context, agentParams) => `${agent.instructions?.(context, agentParams) ?? ""}\n\nWhen a user asks to create a new dashboard, call create_dashboard exactly once before discussing or refining it. If they ask for many widgets, a comprehensive dashboard, or an operations command center, choose detailed: it creates all ten widgets atomically. Choose the closest template and keep the name concise.` : agent.instructions,
           tools: isLead ? (context, agentParams) => [...(agent.tools?.(context, agentParams) ?? []), createDashboardTool] : agent.tools,
           adapter,
           maxTurns: agentTurnLimits[agent.id] ?? 2,
