@@ -11,6 +11,6 @@ test("sales windows use seven local calendar days and stop at the request time",
   const now = new Date("2026-10-28T16:00:00.000Z");
   assert.deepEqual(eventDayWindowBounds(now, "Asia/Tokyo", 7), {
     start: "2026-10-22T15:00:00.000Z",
-    end: "2026-10-28T16:00:00.000Z",
+    end: "2026-10-28T16:00:00.001Z",
   });
 });

@@ -15,6 +15,14 @@ export function emptyDashboardState(): AgReportState {
   return { selectedPageId: "overview", pages: [{ id: "overview" }] };
 }
 
+export function nextUntitledDashboardName(library: DashboardLibrary): string {
+  const names = new Set(library.dashboards.map(({ name }) => name));
+  let number = 1;
+  let name = "Untitled dashboard";
+  while (names.has(name)) name = `Untitled dashboard ${++number}`;
+  return name;
+}
+
 export function readDashboardLibrary(value: string | null, legacyValue: string | null): DashboardLibrary {
   const saved = parseLibrary(value);
   if (saved) return saved;
@@ -33,6 +41,16 @@ export function replaceDashboardState(library: DashboardLibrary, dashboardId: st
     ...library,
     dashboards: library.dashboards.map((dashboard) => dashboard.id === dashboardId ? { ...dashboard, state } : dashboard),
   };
+}
+
+export function removeDashboard(library: DashboardLibrary, dashboardId: string): DashboardLibrary {
+  if (!library.dashboards.some(({ id }) => id === dashboardId)) return library;
+  const dashboards = library.dashboards.filter(({ id }) => id !== dashboardId);
+  if (dashboards.length === 0) {
+    const fallback = { id: "overview", name: "Overview", state: emptyDashboardState() };
+    return { activeId: fallback.id, dashboards: [fallback] };
+  }
+  return { activeId: library.activeId === dashboardId ? dashboards[0]!.id : library.activeId, dashboards };
 }
 
 function parseLibrary(value: string | null): DashboardLibrary | undefined {

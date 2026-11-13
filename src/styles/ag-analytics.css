@@ -14,6 +14,7 @@
 .dashboard-library-bar label svg { flex: 0 0 auto; color: #2563eb; }
 .dashboard-library-bar select { min-width: min(310px, 42vw); max-width: 100%; min-height: 38px; padding: 0 28px 0 10px; border: 1px solid #cdd9e7; border-radius: 7px; color: var(--ink); background: white; font-weight: 700; }
 .dashboard-library-bar .button { min-height: 38px; }
+.dashboard-library-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ag-preset-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 22px; border-top: 1px solid var(--line); background: #f6f4ed; }
 .ag-preset-intro { display: grid; gap: 2px; max-width: 250px; color: var(--ink); line-height: 1.25; }
 .ag-preset-intro .eyebrow { margin: 0; }
@@ -41,7 +42,7 @@
   .dashboard-library-bar { align-items: stretch; flex-direction: column; padding: 13px 15px; }
   .dashboard-library-bar label { flex-wrap: wrap; }
   .dashboard-library-bar select { flex: 1 1 180px; min-width: 0; }
-  .dashboard-library-bar .button { width: 100%; }
+  .dashboard-library-actions .button { flex: 1 1 auto; }
   .ag-preset-bar { align-items: stretch; flex-direction: column; padding: 14px 15px; }
   .ag-preset-actions { justify-content: flex-start; }
   .ag-generate-button { flex: 1 1 100%; }

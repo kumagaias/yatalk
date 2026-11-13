@@ -36,7 +36,9 @@ export function eventDayWindowBounds(now: Date, timeZone: string, days: number):
   const firstDay = new Date(Date.UTC(day.year, day.month - 1, day.day - Math.max(1, Math.floor(days)) + 1));
   return {
     start: utcForWallTime(firstDay.getUTCFullYear(), firstDay.getUTCMonth() + 1, firstDay.getUTCDate(), timeZone).toISOString(),
-    end: now.toISOString(),
+    // Captures and requests have millisecond precision. Include captures at
+    // the request instant while retaining an exclusive upper bound.
+    end: new Date(now.getTime() + 1).toISOString(),
   };
 }
 

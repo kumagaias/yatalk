@@ -1,12 +1,12 @@
 import { createAiHarness, directLlmRunner, studioTheme, type AgAiHarness, type AgAiHarnessSetupParams, type AgAiPromptStarter, type AgDataSourcesDefinition, type AgReportState, type AgStudioApi, type AgStudioStateUpdatedEvent } from "ag-studio";
 import { AgStudio, type AgRegistry } from "ag-studio-react";
-import { BarChart3, Boxes, ChartLine, LayoutDashboard, Plus, RefreshCw, Sparkles, Square } from "lucide-react";
+import { BarChart3, Boxes, ChartLine, LayoutDashboard, Plus, RefreshCw, Sparkles, Square, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CurrencyCode } from "../../shared/currency.js";
 import { get } from "../lib/api";
 import { AgStudioGeminiAdapter } from "../lib/agStudioGeminiAdapter";
 import { createDashboardTemplate, type AnalyticsPreset, type DashboardTemplate, upsertAnalyticsBoard, upsertAnalyticsPreset } from "../lib/agStudioOverview";
-import { readDashboardLibrary, replaceDashboardState, type DashboardLibrary } from "../lib/dashboardLibrary";
+import { emptyDashboardState, nextUntitledDashboardName, readDashboardLibrary, removeDashboard, replaceDashboardState, type DashboardLibrary } from "../lib/dashboardLibrary";
 
 type AnalyticsData = {
   overview: {
@@ -157,16 +157,17 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
 
   // AG Studio's React registry narrows the wrapper API, while createAiHarness currently accepts
   // the base Studio API only. Both are the same runtime Studio API.
-  const createDashboard = useCallback((template: DashboardTemplate, requestedName?: string) => {
+  const createDashboard = useCallback((template: DashboardTemplate | "blank", requestedName?: string) => {
     const studioApi = studioApiRef.current;
     if (!studioApi) throw new Error("The report is still loading. Try again in a moment.");
     const id = `dashboard-${crypto.randomUUID()}`;
-    const fallbackName = template === "detailed" ? "Operations command center" : template === "operations" ? "Operations dashboard" : template === "sales" ? "Sales dashboard" : "Inventory dashboard";
+    const fallbackName = template === "blank" ? nextUntitledDashboardName(dashboardLibraryRef.current) : template === "detailed" ? "Operations command center" : template === "operations" ? "Operations dashboard" : template === "sales" ? "Sales dashboard" : "Inventory dashboard";
     const name = normalizeDashboardName(requestedName, fallbackName);
-    const state = collapseEditorPanels(createDashboardTemplate(studioApi.getAiContext().schema(), template));
+    const state = template === "blank" ? emptyDashboardState() : collapseEditorPanels(createDashboardTemplate(studioApi.getAiContext().schema(), template));
+    const current = replaceDashboardState(dashboardLibraryRef.current, dashboardLibraryRef.current.activeId, studioApi.getState());
     const next = {
       activeId: id,
-      dashboards: [...dashboardLibraryRef.current.dashboards, { id, name, state }],
+      dashboards: [...current.dashboards, { id, name, state }],
     };
     saveDashboardLibrary(next);
     studioApi.setState(state, { historyLabel: `Created ${name}`, source: { type: "api" } });
@@ -228,7 +229,9 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
 
     try {
       const report = upsertAnalyticsBoard(studioApi.getAiContext().schema(), studioApi.getState());
-      studioApi.setState(collapseEditorPanels(report), {
+      const nextState = collapseEditorPanels(report);
+      saveDashboardLibrary(replaceDashboardState(dashboardLibraryRef.current, dashboardLibraryRef.current.activeId, nextState));
+      studioApi.setState(nextState, {
         historyLabel: "Generated sales and stock overview",
         source: { type: "api" },
       });
@@ -236,7 +239,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
     } catch (cause) {
       setOverviewStatus(cause instanceof Error ? cause.message : "The overview could not be created.");
     }
-  }, []);
+  }, [saveDashboardLibrary]);
 
   const applyPreset = useCallback((preset: AnalyticsPreset) => {
     const studioApi = studioApiRef.current;
@@ -247,7 +250,9 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
 
     try {
       const report = upsertAnalyticsPreset(studioApi.getAiContext().schema(), studioApi.getState(), preset);
-      studioApi.setState(collapseEditorPanels(report), {
+      const nextState = collapseEditorPanels(report);
+      saveDashboardLibrary(replaceDashboardState(dashboardLibraryRef.current, dashboardLibraryRef.current.activeId, nextState));
+      studioApi.setState(nextState, {
         historyLabel: preset === "salesTrend" ? "Added daily sales trend" : "Added stock health chart",
         source: { type: "api" },
       });
@@ -255,15 +260,29 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
     } catch (cause) {
       setOverviewStatus(cause instanceof Error ? cause.message : "The preset could not be created.");
     }
-  }, []);
+  }, [saveDashboardLibrary]);
 
   const selectDashboard = useCallback((dashboardId: string) => {
     const dashboard = dashboardLibraryRef.current.dashboards.find(({ id }) => id === dashboardId);
     const studioApi = studioApiRef.current;
     if (!dashboard || !studioApi || dashboardId === dashboardLibraryRef.current.activeId) return;
-    saveDashboardLibrary({ ...dashboardLibraryRef.current, activeId: dashboardId });
+    const current = replaceDashboardState(dashboardLibraryRef.current, dashboardLibraryRef.current.activeId, studioApi.getState());
+    saveDashboardLibrary({ ...current, activeId: dashboardId });
     studioApi.setState(dashboard.state, { historyLabel: `Opened ${dashboard.name}`, source: { type: "api" } });
     setOverviewStatus(`Opened ${dashboard.name}.`);
+  }, [saveDashboardLibrary]);
+
+  const deleteDashboard = useCallback(() => {
+    const library = dashboardLibraryRef.current;
+    const dashboard = library.dashboards.find(({ id }) => id === library.activeId);
+    const studioApi = studioApiRef.current;
+    if (!dashboard || !studioApi) return;
+    if (!window.confirm(`Delete “${dashboard.name}”? This removes its saved widgets from this browser.`)) return;
+    const next = removeDashboard(library, dashboard.id);
+    const selected = next.dashboards.find(({ id }) => id === next.activeId)!;
+    saveDashboardLibrary(next);
+    studioApi.setState(selected.state, { historyLabel: `Opened ${selected.name}`, source: { type: "api" } });
+    setOverviewStatus(`Deleted ${dashboard.name}.`);
   }, [saveDashboardLibrary]);
 
   const onStateUpdated = useCallback((event: AgStudioStateUpdatedEvent) => {
@@ -299,9 +318,14 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
             {dashboardLibrary.dashboards.map((dashboard) => <option key={dashboard.id} value={dashboard.id}>{dashboard.name}</option>)}
           </select>
         </label>
-        <button className="button button-secondary" type="button" onClick={() => createDashboard("operations")}>
-          <Plus size={16} aria-hidden="true" />New dashboard
-        </button>
+        <div className="dashboard-library-actions">
+          <button className="button button-secondary" type="button" onClick={() => createDashboard("blank")}>
+            <Plus size={16} aria-hidden="true" />New dashboard
+          </button>
+          <button className="button button-secondary" type="button" onClick={deleteDashboard} aria-label={`Delete ${activeDashboard.name}`} title="Delete selected dashboard">
+            <Trash2 size={16} aria-hidden="true" />Delete
+          </button>
+        </div>
       </div>}
       {data && <div className="ag-preset-bar" aria-label="AG Studio overview presets">
         <div className="ag-preset-intro">

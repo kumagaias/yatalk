@@ -5,6 +5,7 @@ import { createDatabase } from "../../server/database.js";
 import { applyCartOperations, readCart, listProducts, patchProduct, receiveProductStock } from "../../server/inventory.js";
 import { beginRefund, cancelOrder, completeCapture, completeRefund, reserveOrder, setCreatedOrder } from "../../server/order-state.js";
 import { ApiError } from "../../server/errors.js";
+import { organizerFacts } from "../../server/analytics.js";
 
 function session(db: ReturnType<typeof createDatabase>): string {
   const hash = "a".repeat(64);
@@ -20,6 +21,20 @@ function reserveYak(db: ReturnType<typeof createDatabase>, hash: string, quantit
     catalogRevision: cart.catalogRevision, clientRequestKey: randomUUID() }).order;
   return setCreatedOrder(db, order.id, `PAYPAL-${order.id}`);
 }
+
+test("sales analytics includes a capture at the exact request millisecond but excludes later captures", () => {
+  const db = createDatabase(":memory:");
+  try {
+    const order = reserveYak(db, session(db), 2);
+    const paid = completeCapture(db, order.id, "CAPTURE-boundary");
+    const captured = new Date(paid.captured_at!);
+    const atCapture = organizerFacts(db, "Asia/Tokyo", captured, undefined, { includeSalesTrend: true });
+    const beforeCapture = organizerFacts(db, "Asia/Tokyo", new Date(captured.getTime() - 1), undefined, { includeSalesTrend: true });
+    assert.equal(atCapture.unitsSoldLast7Days[0]?.units_sold, 2);
+    assert.equal(atCapture.salesTrend.at(-1)?.netSalesMinor, 1500);
+    assert.equal(beforeCapture.unitsSoldLast7Days.length, 0);
+  } finally { db.close(); }
+});
 
 test("cart totals use catalog prices and adding a line reserves it atomically", () => {
   const db = createDatabase(":memory:");
