@@ -66,6 +66,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Production build and full test suite passed (122 passed, 2 skipped). The staged Gitleaks scan passed.
 - Cloud Run revision `yatalk-dev-preview-00040-tbv` passed `/api/health` with the atomic Detailed dashboard template.
 - Deferred loading AG Studio until the analytics dashboard is needed, reducing the production entry JavaScript from about 7 MB to 421 KB (128 KB gzip). Updated the Studio theme with warmer surfaces and green, gold, and terracotta chart colors, and guided AI refinements toward clear chart choices. Production build and full tests passed (122 passed, 2 skipped).
+- Cloud Run revision `yatalk-dev-preview-00041-d8r` passed `/api/health` with the deferred analytics bundle and refreshed Studio theme.
 
 ## Next steps
 
