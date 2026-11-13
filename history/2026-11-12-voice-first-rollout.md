@@ -65,6 +65,7 @@ Ship the voice-first PayPal ordering flow, make its English voice/chat responses
 - Added an atomic `Detailed` dashboard template for chat requests such as “make a 10-widget dashboard.” One client-side `create_dashboard` call now opens a separate Operations command center with four KPI cards, daily sales, stock-versus-demand, demand, on-hand, reservation, and price widgets. This avoids consuming AG Studio tool turns one widget at a time.
 - Production build and full test suite passed (122 passed, 2 skipped). The staged Gitleaks scan passed.
 - Cloud Run revision `yatalk-dev-preview-00040-tbv` passed `/api/health` with the atomic Detailed dashboard template.
+- Deferred loading AG Studio until the analytics dashboard is needed, reducing the production entry JavaScript from about 7 MB to 421 KB (128 KB gzip). Updated the Studio theme with warmer surfaces and green, gold, and terracotta chart colors, and guided AI refinements toward clear chart choices. Production build and full tests passed (122 passed, 2 skipped).
 
 ## Next steps
 

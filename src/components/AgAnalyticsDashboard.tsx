@@ -64,24 +64,24 @@ const agentTurnLimits: Record<string, number> = {
 };
 
 const analyticsTheme = studioTheme.withParams({
-  backgroundColor: "#f8fafc",
+  backgroundColor: "#f8f7f1",
   fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
-  studioCanvasBackgroundColor: "#f4f7fb",
-  studioWidgetBackgroundColor: "#ffffff",
-  studioWidgetBorderRadius: 10,
-  studioWidgetShadow: { offsetY: 2, radius: 8, color: "#102a4314" },
+  studioCanvasBackgroundColor: "#edf2ed",
+  studioWidgetBackgroundColor: "#fffefa",
+  studioWidgetBorderRadius: 14,
+  studioWidgetShadow: { offsetY: 3, radius: 12, color: "#173d3418" },
   studioWidgetTitleFontWeight: 650,
-  studioWidgetTitleTextColor: "#11243a",
-  chartAccentColor: "#2563eb",
-  chartGridLineColor: "#e4eaf1",
-  chartPaletteFills1Color: "#2563eb",
-  chartPaletteFills2Color: "#14b8a6",
-  chartPaletteFills3Color: "#f59e0b",
-  chartPaletteFills4Color: "#8b5cf6",
-  chartPaletteStrokes1Color: "#1d4ed8",
-  chartPaletteStrokes2Color: "#0f766e",
-  chartPaletteStrokes3Color: "#c2410c",
-  chartPaletteStrokes4Color: "#6d28d9",
+  studioWidgetTitleTextColor: "#193d36",
+  chartAccentColor: "#287966",
+  chartGridLineColor: "#e1e9e2",
+  chartPaletteFills1Color: "#287966",
+  chartPaletteFills2Color: "#e4a944",
+  chartPaletteFills3Color: "#cc6944",
+  chartPaletteFills4Color: "#739b8d",
+  chartPaletteStrokes1Color: "#1f6656",
+  chartPaletteStrokes2Color: "#b37b20",
+  chartPaletteStrokes3Color: "#a34c30",
+  chartPaletteStrokes4Color: "#527c6f",
 });
 
 export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
@@ -197,7 +197,7 @@ export function AgAnalyticsDashboard({ shopKey, shopName, apiBase }: Props) {
         const isLead = agent.id === "lead";
         return directLlmRunner({
           ...agent,
-          instructions: isLead ? (context, agentParams) => `${agent.instructions?.(context, agentParams) ?? ""}\n\nWhen a user asks to create a new dashboard, call create_dashboard exactly once before discussing or refining it. If they ask for many widgets, a comprehensive dashboard, or an operations command center, choose detailed: it creates all ten widgets atomically. Choose the closest template and keep the name concise.` : agent.instructions,
+          instructions: isLead ? (context, agentParams) => `${agent.instructions?.(context, agentParams) ?? ""}\n\nWhen a user asks to create a new dashboard, call create_dashboard exactly once before discussing or refining it. If they ask for many widgets, a comprehensive dashboard, or an operations command center, choose detailed: it creates all ten widgets atomically. Choose the closest template and keep the name concise. When refining a dashboard, favor a clear visual hierarchy, concise titles, and appropriate chart types grounded in available data.` : agent.instructions,
           tools: isLead ? (context, agentParams) => [...(agent.tools?.(context, agentParams) ?? []), createDashboardTool] : agent.tools,
           adapter,
           maxTurns: agentTurnLimits[agent.id] ?? 2,

@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowUpRight, CircleHelp, LogOut, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import type { OrganizerProduct, OrganizerSummary, Order } from "../types";
 import { ApiError, del, get, patch, post } from "../lib/api";
@@ -11,13 +11,14 @@ import { ShopQRCodeCard } from "../components/ShopQRCodeCard";
 import { Alert, Loading } from "../components/Feedback";
 import { OwnerAssistantPanel } from "../components/OwnerAssistantPanel";
 import { ShopImageCard } from "../components/ShopImageCard";
-import { AgAnalyticsDashboard } from "../components/AgAnalyticsDashboard";
 import { CounterPaymentQueue } from "../components/CounterPaymentQueue";
 import { ShopDangerZone } from "../components/ShopDangerZone";
 import { useScreenWakeLock } from "../lib/use-screen-wake-lock";
 import { dashboardApiBase } from "../lib/dashboard-api";
 import type { MenuExtraction } from "../../shared/schemas.js";
 import { parseAmountToMinor } from "../../shared/currency.js";
+
+const AgAnalyticsDashboard = lazy(() => import("../components/AgAnalyticsLazy"));
 
 export function DashboardPage() {
   const location = useLocation();
@@ -220,12 +221,12 @@ export function DashboardPage() {
             <article className="metric-card"><span className="metric-label">Net captured sales</span><strong>{money(summary.metrics.netSalesMinor, currency)}</strong><span className="metric-footnote">After completed refunds</span></article>
             <article className="metric-card"><span className="metric-label">Paid orders · low stock</span><strong>{summary.metrics.paidOrderCount} <span aria-hidden="true">·</span> {summary.metrics.lowStockCount}</strong><span className="metric-footnote">Includes collected orders</span></article>
           </section>
-          {publicOwnerSlug && summary.shop?.ownerSlug && shopSlug && <AgAnalyticsDashboard
+          {publicOwnerSlug && summary.shop?.ownerSlug && shopSlug && <Suspense fallback={<Loading>Loading analytics…</Loading>}><AgAnalyticsDashboard
             key={`${publicOwnerSlug}/${summary.shop.slug}`}
             shopKey={`${publicOwnerSlug}/${summary.shop.slug}`}
             shopName={shopName}
             apiBase={managementApiBase}
-          />}
+          /></Suspense>}
           <div className="dashboard-grid">
             <div className="dashboard-column">
               <section className="dashboard-card" aria-labelledby="orders-heading">
